@@ -1,4 +1,6 @@
 import os
+import shutil
+import sys
 import time
 from hashlib import md5
 
@@ -22,6 +24,7 @@ headers = {
 def auth_prompt(code=True):
     return [
         "请先在浏览器登录延河课堂",
+        "也可以运行 uv run python auth_patchright.py，登录后自动提取身份认证码",
         "并在延河课堂的地址栏输入 javascript:alert(JSON.parse(localStorage.auth).token)",
         '注意粘贴时浏览器会自动去掉"javascript:"，需要手动补上',
         "或者按F12打开控制台粘贴这段代码",
@@ -160,6 +163,41 @@ def download_audio(url, path, name):
         res = requests.get(url, headers=_headers)
     with open(f"{path}/{name}.aac", "wb") as f:
         f.write(res.content)
+
+
+def app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def bundle_dir():
+    return getattr(sys, "_MEIPASS", app_dir())
+
+
+def get_ffmpeg_command():
+    executable = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    candidates = []
+    if os.environ.get("FFMPEG_BINARY"):
+        candidates.append(os.environ["FFMPEG_BINARY"])
+    for base_dir in {os.getcwd(), app_dir(), bundle_dir()}:
+        candidates.append(os.path.join(base_dir, executable))
+        candidates.append(os.path.join(base_dir, "bin", executable))
+    if sys.platform == "darwin":
+        candidates.extend(["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"])
+
+    for candidate in candidates:
+        if (
+            candidate
+            and os.path.isfile(candidate)
+            and (os.name == "nt" or os.access(candidate, os.X_OK))
+        ):
+            return candidate
+
+    resolved = shutil.which(executable)
+    if resolved:
+        return resolved
+    raise FileNotFoundError("未找到 ffmpeg，请先安装 ffmpeg 或设置 FFMPEG_BINARY。")
 
 
 def print_help(f: callable):

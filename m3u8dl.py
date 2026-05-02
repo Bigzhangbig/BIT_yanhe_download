@@ -268,7 +268,7 @@ class M3u8Download:
         """
         run(
             [
-                "ffmpeg",
+                utils.get_ffmpeg_command(),
                 "-i", f"{self._file_path}.m3u8",
                 "-acodec", "copy",
                 "-vcodec", "copy",

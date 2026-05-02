@@ -18,7 +18,35 @@
 
 ### 登录延河课堂
 
-新版的延河课堂要求登录才能查看课程列表，故需要先自行登录延河课堂。登录后，在延河课堂的页面的地址栏输入如下代码（注意，浏览器会自动去掉前缀"javascript:"，故直接复制粘贴后需手动补上）：
+新版的延河课堂要求登录才能查看课程列表，故需要先获取登录后的身份认证码。可以使用 Patchright 自动提取，也可以登录后手动复制。
+
+确保本机能直接运行 `patchright-cli` 后，在项目目录执行：
+
+```bash
+uv run python auth_patchright.py
+```
+
+该命令会调用类似下面的 Patchright 命令打开一个带持久化用户目录的浏览器窗口：
+
+```bash
+patchright-cli -s=yanhe-auth open https://www.yanhekt.cn/recordCourse --persistent --profile "$HOME/Library/Application Support/BIT_yanhe_download/patchright-profile"
+```
+
+在弹出的浏览器里完成登录后，脚本会自动轮询 `localStorage.auth`，提取其中的 `token` 并写入 `auth.txt`。之后运行网页 GUI、命令行 GUI 或原始交互方式时，通常无需再手动填写身份认证码。
+
+如果已经用同一个 Patchright session 打开了网页，只想重新提取鉴权，可运行：
+
+```bash
+uv run python auth_patchright.py --skip-open
+```
+
+也可以顺手验证某个课程是否可用：
+
+```bash
+uv run python auth_patchright.py --course-id 40524
+```
+
+手动获取身份认证码的方式仍然可用：
 
 ```
 javascript:alert(JSON.parse(localStorage.auth).token)
@@ -43,6 +71,34 @@ uv run python webui_interface.py
 ```
 
 而后在打开的网页中新建任务即可。
+
+### macOS 运行
+
+macOS 可以直接从源码运行，无需 Windows 的 `.exe` 文件。建议先安装 `uv` 和 `ffmpeg`：
+
+```bash
+brew install uv ffmpeg
+uv sync
+```
+
+然后按需运行：
+
+```bash
+# 网页 GUI
+uv run python webui_interface.py
+
+# 命令行 GUI
+uv run python gui.py
+
+# 原始交互方式
+uv run python main.py 40524
+```
+
+程序会优先查找项目目录、打包目录、`/opt/homebrew/bin/ffmpeg`、`/usr/local/bin/ffmpeg` 和 PATH 中的 `ffmpeg`。如果你的 `ffmpeg` 在其他位置，可以通过环境变量指定：
+
+```bash
+FFMPEG_BINARY=/path/to/ffmpeg uv run python webui_interface.py
+```
 
 下载类型可选摄像头（即教室后的摄像头录像）或电脑屏幕（即教室电脑的屏幕信号）。
 
@@ -155,13 +211,25 @@ uv sync --extra whisper
 
 使用如下命令打包：
 
-```bash
+```bat
 uv add --dev pyinstaller
-# 打包
+REM Windows 打包
 uv run pyinstaller -F main.py -i yhkt.ico
 uv run pyinstaller -F gui.py -i yhkt.ico
-uv run pyinstaller -F webui_interface.py --add-data webui:webui --add-data templates:templates -i yhkt.ico
+uv run pyinstaller -F webui_interface.py --add-data webui;webui --add-data templates;templates -i yhkt.ico
+uv run pyinstaller -F auth_patchright.py -i yhkt.ico
 uv run pyinstaller -F gen_caption.py -i yhkt.ico
+```
+
+macOS / Linux 打包时不使用 `.ico`，且 `--add-data` 使用冒号分隔：
+
+```bash
+uv add --dev pyinstaller
+uv run pyinstaller -F main.py
+uv run pyinstaller -F gui.py
+uv run pyinstaller -F webui_interface.py --add-data webui:webui --add-data templates:templates
+uv run pyinstaller -F auth_patchright.py
+uv run pyinstaller -F gen_caption.py
 ```
 
 打包 `gen_caption.py`时可能会失败，提示递归过深：
