@@ -3,12 +3,74 @@ import sys
 
 import m3u8dl
 import utils
+import cas_login
 
-headers = {
-    "Origin": "https://www.yanhekt.cn",
-    "xdomain-client": "web_user",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 Edg/107.0.1418.26",
-}
+# 尝试加载 .env 配置
+def load_env():
+    env_file = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip().strip('"').strip("'")
+
+
+load_env()
+
+
+def ensure_auth():
+    """确保有有效的 auth token，优先从 .env 读取，也可以手动输入"""
+    # 尝试从 auth.txt 读取并验证
+    if utils.read_auth():
+        # 先尝试用现有 token
+        course_id = os.environ.get('YANHE_COURSE_ID', '10001')  # 默认课程ID用于测试
+        if utils.test_auth(courseID=course_id):
+            return True
+
+    # 检查 .env 是否有 credentials
+    sid = os.environ.get('YANHE_SID')
+    pwd = os.environ.get('YANHE_PASSWORD')
+
+    if sid and pwd:
+        print(f"尝试使用 .env 中的账号登录...")
+        try:
+            token = cas_login.verify_cas(sid, pwd)
+            utils.write_auth(token)
+            if utils.test_auth(courseID=course_id):
+                print("登录成功！")
+                return True
+        except Exception as e:
+            print(f".env 登录失败: {e}")
+
+    # 交互式输入
+    print("请选择登录方式:")
+    print("1. 输入身份认证码（从浏览器复制）")
+    print("2. 输入学号和密码")
+
+    choice = input("选择 (1/2): ").strip()
+
+    if choice == '2':
+        sid = input("学号: ").strip()
+        pwd = input("密码: ").strip()
+        if not sid or not pwd:
+            print("学号和密码不能为空")
+            sys.exit(1)
+        try:
+            token = cas_login.verify_cas(sid, pwd)
+            utils.write_auth(token)
+            print("登录成功！")
+        except Exception as e:
+            print(f"登录失败: {e}")
+            sys.exit(1)
+    else:
+        # 旧方式：手动输入 token
+        auth = input("。".join(utils.auth_prompt()))
+        utils.write_auth(auth)
+        if not utils.test_auth(courseID=os.environ.get('YANHE_COURSE_ID', '10001')):
+            print("身份验证失败")
+            sys.exit(1)
 
 
 @utils.print_help
@@ -18,12 +80,13 @@ def main():
     else:
         courseID = sys.argv[1]
 
-    if not utils.read_auth() or not utils.test_auth(courseID=courseID):
-        auth = input("。".join(utils.auth_prompt()))
-        utils.write_auth(auth)
-        if not utils.test_auth(courseID=courseID):
-            print("身份验证失败")
-            sys.exit()
+    # 确保有有效的 auth
+    ensure_auth()
+
+    if not utils.test_auth(courseID=courseID):
+        print("身份验证失败")
+        sys.exit()
+
     videoList, courseName, professor = utils.get_course_info(courseID=courseID)
 
     print(f"课 程 名: {courseName}")

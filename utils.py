@@ -23,9 +23,10 @@ headers = {
 
 def auth_prompt(code=True):
     return [
-        "请先在浏览器登录延河课堂",
-        "也可以运行 uv run python auth_patchright.py，登录成功后会自动关闭浏览器并提取身份认证码",
-        "并在延河课堂的地址栏输入 javascript:alert(JSON.parse(localStorage.auth).token)",
+        "请先登录延河课堂",
+        "方式1: 输入学号和密码（命令行或 .env 配置）",
+        "方式2: 在浏览器登录后复制 localStorage.auth.token 到这里",
+        "在延河课堂的地址栏输入 javascript:alert(JSON.parse(localStorage.auth).token)",
         '注意粘贴时浏览器会自动去掉"javascript:"，需要手动补上',
         "或者按F12打开控制台粘贴这段代码",
         "然后将弹出的内容粘贴到" + ("这里：" if code else '"身份认证码"栏'),
