@@ -20,7 +20,7 @@
 
 新版的延河课堂要求登录才能查看课程列表，故需要先获取登录后的身份认证码。可以使用 Patchright 自动提取，也可以登录后手动复制。
 
-确保本机能直接运行 `patchright-cli` 后，在项目目录执行：
+确保本机能直接运行 `patchright` 后，在项目目录执行：
 
 ```bash
 uv run python auth_patchright.py
@@ -29,12 +29,12 @@ uv run python auth_patchright.py
 该命令会调用类似下面的 Patchright 命令打开一个带持久化用户目录的浏览器窗口：
 
 ```bash
-patchright-cli -s=yanhe-auth open https://www.yanhekt.cn/recordCourse --persistent --profile "$HOME/Library/Application Support/BIT_yanhe_download/patchright-profile"
+patchright open --browser chromium --user-data-dir "$HOME/Library/Application Support/BIT_yanhe_download/patchright-profile" --save-storage "$HOME/Library/Application Support/BIT_yanhe_download/patchright-storage-state.json" https://www.yanhekt.cn/recordCourse
 ```
 
-在弹出的浏览器里完成登录后，脚本会自动轮询 `localStorage.auth`，提取其中的 `token` 并写入 `auth.txt`。之后运行网页 GUI、命令行 GUI 或原始交互方式时，通常无需再手动填写身份认证码。
+在弹出的浏览器里完成登录后，脚本会轮询检查鉴权是否可用；检测成功后会自动关闭 Patchright 打开的浏览器窗口。脚本会优先从保存的 storage state 中读取 `localStorage.auth`；如果 Patchright 没有生成 state 文件，则会从持久化浏览器 profile 的 Local Storage 中提取 `token` 并写入 `auth.txt`。之后运行网页 GUI、命令行 GUI 或原始交互方式时，通常无需再手动填写身份认证码。
 
-如果已经用同一个 Patchright session 打开了网页，只想重新提取鉴权，可运行：
+如果之前已经保存过 Patchright storage state，只想重新提取鉴权，可运行：
 
 ```bash
 uv run python auth_patchright.py --skip-open
