@@ -2,7 +2,7 @@ import os
 import sys
 import time
 
-import whisper
+from mlx_audio.stt import load
 from zhconv import convert  # 简繁体转换
 
 
@@ -49,17 +49,19 @@ def main():
         for i in input_list:
             video_paths.append(files[i])
         print("selected video files:", video_paths)
-        models = []
-        for model in whisper.available_models():
-            if ".en" in model:
-                continue
-            print(f"[{len(models)}]: ", model)
-            models.append(model)
-        model_index = input("select a model by input a num(default 'base'): ")
+        models = [
+            "mlx-community/Qwen3-ASR-1.7B-bf16",
+            "mlx-community/Qwen3-ASR-1.7B-8bit",
+            "mlx-community/Qwen3-ASR-1.7B-6bit",
+            "mlx-community/Qwen3-ASR-1.7B-4bit",
+        ]
+        for i, model in enumerate(models):
+            print(f"[{i}]: ", model)
+        model_index = input("select a model by input a num(default 'mlx-community/Qwen3-ASR-1.7B-bf16'): ")
         try:
             model_name = models[eval(model_index)]
         except Exception:
-            model_name = "base"
+            model_name = models[0]
         print("selected model:", model_name)
 
     for video_path in video_paths:
@@ -67,29 +69,29 @@ def main():
         audio_path = video_path
         if ext.lower() == ".mp4":
             audio_path = base_path + ".m4a"
-            cmd = f'ffmpeg -i "{video_path}" -vn -ar {whisper.audio.SAMPLE_RATE} "{audio_path}"'
+            cmd = f'ffmpeg -i "{video_path}" -vn -ar 16000 "{audio_path}"'
             os.system(cmd)
 
-        model = whisper.load_model(model_name, download_root="whisper_models/")
+        model = load(model_name)
 
         start = time.time()
-        result = model.transcribe(audio_path, verbose=False, language="zh")
+        result = model.generate(audio_path, language="Chinese")
         print("Time cost: ", time.time() - start)
 
         # 写入字幕文件
         with open(base_path + ".srt", "w", encoding="utf-8") as f:
             i = 1
-            for r in result["segments"]:
+            for seg in result.segments:
                 f.write(str(i) + "\n")
                 f.write(
-                    seconds_to_hmsm(float(r["start"]))
+                    seconds_to_hmsm(float(seg["start"]))
                     + " --> "
-                    + seconds_to_hmsm(float(r["end"]))
+                    + seconds_to_hmsm(float(seg["end"]))
                     + "\n"
                 )
                 i += 1
                 f.write(
-                    convert(r["text"], "zh-cn") + "\n"
+                    convert(seg["text"], "zh-cn") + "\n"
                 )  # 结果可能是繁体，转为简体zh-cn
                 f.write("\n")
 

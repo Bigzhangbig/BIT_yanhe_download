@@ -12,6 +12,6 @@ dependencies = [
 
 [project.optional-dependencies]
 whisper = [
-    "openai-whisper>=20250625",
+    "mlx-audio>=0.0.1",
     "zhconv>=1.4.3",
 ]

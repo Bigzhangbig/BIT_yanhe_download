@@ -77,6 +77,11 @@ def parse_args():
         action="store_true",
         help="Print the extracted token after writing auth file.",
     )
+    parser.add_argument(
+        "--auth-only",
+        action="store_true",
+        help="Only write auth file and exit instead of entering downloader main flow.",
+    )
     return parser.parse_args()
 
 
@@ -268,6 +273,19 @@ def open_browser_and_wait_for_auth(args):
     return token
 
 
+def run_downloader_main(args):
+    import main as downloader_main
+
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = ["main.py"]
+        if args.course_id:
+            sys.argv.append(args.course_id)
+        downloader_main.main()
+    finally:
+        sys.argv = original_argv
+
+
 def main():
     args = parse_args()
     try:
@@ -279,6 +297,9 @@ def main():
         print(f"鉴权已写入 {args.auth_file}，可以继续运行下载器。")
         if args.print_token:
             print(token)
+        if not args.auth_only:
+            print("正在进入下载主流程...")
+            run_downloader_main(args)
     except Exception as exc:
         print(exc)
         sys.exit(1)
