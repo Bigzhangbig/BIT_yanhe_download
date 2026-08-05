@@ -7,11 +7,22 @@ requires-python = ">=3.14"
 dependencies = [
     "Flask",
     "requests",
+    "python-dotenv",
     "windows-curses; platform_system == 'Windows'",
+    "tencentcloud-sdk-python>=3.1.126",
 ]
 
 [project.optional-dependencies]
-whisper = [
-    "openai-whisper>=20250625",
+asr = [
+    "mlx-audio>=0.4.3",
     "zhconv>=1.4.3",
+]
+whisper = [
+    "mlx-audio>=0.4.3",
+    "zhconv>=1.4.3",
+]
+
+[dependency-groups]
+dev = [
+    "patchright>=1.61.2",
 ]
