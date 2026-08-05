@@ -19,7 +19,38 @@
   <!-- Popup for creating a new task -->
   <div id="taskPopup" class="popup">
     <div class="popup-content">
-      <span class="close">×</span>
+      <span class="close">&times;</span>
+
+      <!-- 课程搜索区域 -->
+      <div class="form-group search-section">
+        <div class="tab-bar">
+          <button type="button" class="tab active" data-tab="search" onclick="switchTab('search')">搜索课程</button>
+          <button type="button" class="tab" data-tab="my" onclick="switchTab('my')">我的课程</button>
+        </div>
+
+        <div id="searchPanel">
+          <div class="search-bar">
+            <input type="text" id="searchKeyword" class="input-field search-input" placeholder="输入课程名搜索..." />
+            <select id="semesterFilter" class="input-field semester-select">
+              <option value="">全部学期</option>
+            </select>
+            <button type="button" class="btn" onclick="doSearch()">搜索</button>
+          </div>
+        </div>
+
+        <div id="myPanel" style="display:none;">
+          <div class="search-bar">
+            <button type="button" class="btn" onclick="loadMyCourses()">加载我的课程</button>
+          </div>
+        </div>
+
+        <div id="searchResults" class="search-results">
+          <p class="search-hint">搜索课程后点击选择</p>
+        </div>
+        <div id="pagination" class="pagination"></div>
+      </div>
+
+      <!-- 原有表单 -->
       <form id="taskForm">
         <div class="form-group">
           <label for="courseId">课程ID号:</label>

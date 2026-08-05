@@ -71,6 +71,101 @@ def _extract_token_from_url(url: str) -> str:
     raise RuntimeError(f"未从 URL 提取到 token: {url}")
 
 
+def _detect_2fa_requirement(html: str) -> dict:
+    """解析 SSO 登录页(POST 失败后)/cas/login HTML,判断需要什么二次验证。
+
+    返回 dict:
+      {
+        "type": "none" | "captcha" | "sms" | "email" | "webauthn" | "qr" | "unknown",
+        "captcha_url": str | None,
+        "prompt": str,  # 给用户看的提示
+        "error_msg": str,  # 服务器返回的错误信息
+      }
+    """
+    info = {"type": "none", "captcha_url": None, "prompt": "", "error_msg": ""}
+
+    # 错误信息: <span id="showErrorTip">...</span> 或 通用错误
+    m = re.search(r'<span id="showErrorTip"[^>]*>(.*?)</span>', html, re.DOTALL)
+    if m:
+        info["error_msg"] = re.sub(r'<[^>]+>', '', m.group(1)).strip()
+
+    # 验证码图片: <img ... id="captchaImg" src="..."> 或 <p id="captcha-url">
+    m = re.search(r'<img[^>]*id="captchaImg"[^>]*src="([^"]+)"', html)
+    if m:
+        info["captcha_url"] = m.group(1)
+        info["type"] = "captcha"
+        info["prompt"] = "图形验证码"
+        return info
+    m = re.search(r'<p id="captcha-url"[^>]*>([^<]+)</p>', html)
+    if m and m.group(1).strip():
+        info["captcha_url"] = m.group(1).strip()
+        info["type"] = "captcha"
+        info["prompt"] = "图形验证码"
+        return info
+
+    # 短信 / 邮件: form 切换到 smsLogin / mailLogin tab
+    if 'id="current-login-type">smsLogin' in html or 'class="code">smsLogin' in html:
+        info["type"] = "sms"
+        info["prompt"] = "短信验证码"
+        return info
+    if 'id="current-login-type">mailLogin' in html or 'class="code">mailLogin' in html:
+        info["type"] = "email"
+        info["prompt"] = "邮件验证码"
+        return info
+
+    # 通行密钥: webauthn
+    if 'id="current-login-type">webauthn' in html:
+        info["type"] = "webauthn"
+        info["prompt"] = "通行密钥(WebAuthn)"
+        return info
+    # i北理扫码
+    if 'id="current-login-type">shuxiQr' in html:
+        info["type"] = "qr"
+        info["prompt"] = "i北理扫码"
+        return info
+
+    if info["error_msg"]:
+        info["type"] = "unknown"
+        info["prompt"] = f"未知(服务器错误: {info['error_msg']})"
+    return info
+
+
+def _prompt_user_for_code(prompt_text: str, *, allow_empty: bool = False) -> str:
+    """阻塞等用户在终端输入验证码。空输入(直接回车)除非 allow_empty 否则重试。"""
+    while True:
+        try:
+            code = input(f"\n[prompt] {prompt_text}: ").strip()
+        except EOFError:
+            raise RuntimeError("用户中断输入 (EOF)")
+        if code or allow_empty:
+            return code
+        print("[prompt] 不能为空,请重新输入")
+
+
+def _fetch_captcha_image(url: str, session: requests.Session) -> str:
+    """下载 captcha 图片到 /tmp/yhe_captcha.<ext>,返回本地路径(同时尝试 macOS open)。"""
+    r = session.get(url, timeout=10)
+    r.raise_for_status()
+    # 推断扩展名
+    ctype = r.headers.get("content-type", "")
+    ext = ".jpg"
+    if "png" in ctype:
+        ext = ".png"
+    elif "gif" in ctype:
+        ext = ".gif"
+    elif "jpeg" in ctype:
+        ext = ".jpg"
+    out = Path("/tmp") / f"yhe_captcha{ext}"
+    out.write_bytes(r.content)
+    # macOS 弹 Preview
+    try:
+        import subprocess
+        subprocess.Popen(["open", str(out)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    return str(out)
+
+
 def login_sso_requests(username: str, password: str, *, skip_rba: bool = False, verbose: bool = True) -> str:
     """纯 requests 跑 CAS 登录,返回 32 hex token。
 
@@ -142,10 +237,77 @@ def login_sso_requests(username: str, password: str, *, skip_rba: bool = False, 
         print(f"[login] body[:500]: {r2.text[:500]}")
 
     if r2.status_code not in (301, 302):
-        # 可能是风控拦截、密码错、或表单错误
-        raise RuntimeError(
-            f"POST 登录未返 302: status={r2.status_code} body[:300]={r2.text[:300]}"
-        )
+        # 二次验证 / 风控 / 密码错
+        two_fa = _detect_2fa_requirement(r2.text)
+        if two_fa["type"] == "captcha":
+            # 下载 captcha,让用户看图输入
+            if not two_fa["captcha_url"]:
+                # 兜底:常见 CAS captcha 路径
+                two_fa["captcha_url"] = "https://sso.bit.edu.cn/cas/captcha"
+            if verbose:
+                print(f"[login] 需要图形验证码: {two_fa['captcha_url']}")
+            captcha_path = _fetch_captcha_image(two_fa["captcha_url"], s)
+            print(f"[login] 验证码图片已存: {captcha_path} (macOS 会自动用 Preview 打开)")
+            # 拿新 execution(captcha 流程通常需要刷新 form)
+            r1b = s.get(LOGIN_PAGE_URL, allow_redirects=True, timeout=15)
+            m = re.search(r'id="login-page-flowkey"[^>]*>([^<]+)<', r1b.text)
+            if m:
+                execution = m.group(1)
+            captcha_code = _prompt_user_for_code("请输入图中验证码")
+            # 重新 POST 加 captcha
+            form_data["captcha_code"] = captcha_code
+            form_data["execution"] = execution
+            if verbose:
+                print(f"[login] 重 POST (with captcha)")
+            r2 = s.post(LOGIN_POST_URL, data=form_data, allow_redirects=False, timeout=15)
+            if verbose:
+                print(f"[login] status={r2.status_code} location={r2.headers.get('Location', '<none>')}")
+            if r2.status_code not in (301, 302):
+                # 二次 captcha 还失败(或别的 2FA)
+                two_fa2 = _detect_2fa_requirement(r2.text)
+                raise RuntimeError(
+                    f"captcha 后仍失败: type={two_fa2['type']} err={two_fa2['error_msg']!r} "
+                    f"body[:300]={r2.text[:300]}"
+                )
+        elif two_fa["type"] in ("sms", "email"):
+            # 二次验证需要手机/邮件验证码
+            if verbose:
+                print(f"[login] 需要{two_fa['prompt']}")
+            code = _prompt_user_for_code(f"请输入{two_fa['prompt']}(6 位数字)")
+            # 重新 POST 切到 smsLogin/mailLogin tab 提交
+            form_data["type"] = "smsLogin" if two_fa["type"] == "sms" else "mailLogin"
+            form_data["captcha_code"] = code
+            r1b = s.get(LOGIN_PAGE_URL, allow_redirects=True, timeout=15)
+            m = re.search(r'id="login-page-flowkey"[^>]*>([^<]+)<', r1b.text)
+            if m:
+                execution = m.group(1)
+            form_data["execution"] = execution
+            if verbose:
+                print(f"[login] 重 POST (with {two_fa['type']} code)")
+            r2 = s.post(LOGIN_POST_URL, data=form_data, allow_redirects=False, timeout=15)
+            if r2.status_code not in (301, 302):
+                two_fa2 = _detect_2fa_requirement(r2.text)
+                raise RuntimeError(
+                    f"{two_fa['prompt']} 后仍失败: type={two_fa2['type']} "
+                    f"err={two_fa2['error_msg']!r} body[:300]={r2.text[:300]}"
+                )
+        elif two_fa["type"] == "webauthn":
+            raise RuntimeError(
+                f"需要 {two_fa['prompt']}(物理密钥/Face ID/Touch ID 等),"
+                f"纯 requests 无法完成,请降级到 auth_patchright.py 跑浏览器"
+            )
+        elif two_fa["type"] == "qr":
+            raise RuntimeError(
+                f"需要 {two_fa['prompt']}(i北理 APP 扫码),"
+                f"纯 requests 无法完成,请降级到 auth_patchright.py 跑浏览器"
+            )
+        else:
+            # 未知 / 密码错 / 其它错误
+            err = two_fa["error_msg"] or r2.text[:200]
+            raise RuntimeError(
+                f"POST 登录未返 302: status={r2.status_code} "
+                f"2fa={two_fa['type']} err={err!r}"
+            )
 
     # Step 3: 跟 302 -> cbiz callback
     ticket_url = r2.headers["Location"]

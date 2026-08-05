@@ -18,7 +18,38 @@
 
 ### 登录延河课堂
 
-新版的延河课堂要求登录才能查看课程列表，故需要先获取登录后的身份认证码。可以使用 Patchright 自动提取，也可以登录后手动复制。
+新版的延河课堂要求登录才能查看课程列表，故需要先获取登录后的身份认证码。**主推 `login_sso_requests.py`（纯 requests，无浏览器）**；`auth_patchright.py`（Patchright 半自动）降级为 fallback，**仅在 requests 跑不过时（sso 加 RBA 真校验 / 加图形验证码）再使用**。
+
+#### 主推：纯 requests 自动登录（推荐，N100 24/7 友好）
+
+在项目根目录的 `.env` 填入 `STUDENT_ID` + `PASSWORD`（参考 `.env.example`）：
+
+```bash
+# 一次性：建 .env
+cp .env.example .env
+# 编辑 .env 填学号和密码
+
+# 跑：默认读 .env 凭据，全程脱敏不打密码
+uv run python login_sso_requests.py
+```
+
+**E2E 流程**（自动完成，无需弹浏览器）：
+
+1. `GET https://sso.bit.edu.cn/cas/login?service=https://cbiz.yanhekt.cn/v1/cas/callback`
+   → 拿 `SESSION` cookie + `<p id="login-page-flowkey">` 里的 execution
+2. `POST https://sso.bit.edu.cn/cas/login`（form: username/password/type/execution/...）
+   → 302 → `https://cbiz.yanhekt.cn/v1/cas/callback?ticket=ST-...`
+3. `GET /v1/cas/callback?ticket=...` → 302 → `https://www.yanhekt.cn/login?token=<32 hex>&type=Bearer&expired_at=...`
+4. 端到端验证：`/v2/course/private/list` 返该用户真实课程数
+
+需要二次身份验证时（SMS / 邮件验证码 / 图形验证），脚本会提示手动输入：
+
+```bash
+uv run python login_sso_requests.py --code-prompt '请输入延河发送的验证码'
+# 看到 "[login] 需要二次验证,提示: 请输入延河发送的验证码" 时在终端敲验证码回车
+```
+
+#### Fallback：Patchright 半自动（requests 跑不过时再用）
 
 确保本机能直接运行 `patchright` 后，在项目目录执行：
 
@@ -158,21 +189,21 @@ uv run python gui.py
 
 ## 自动生成字幕
 
-本项目提供自动生成字幕功能，使用 openai 的[whisper](https://github.com/openai/whisper)项目及其模型在本地进行语音转文字生成字幕。
+本项目提供自动生成字幕功能，使用 MLX Audio 的 Qwen3-ASR 模型在本地进行语音转文字生成字幕。
 
-最好使用 GPU 运行，否则速度较慢，依赖见[下文](#依赖)。
+该功能更适合在 Apple Silicon Mac 上运行，依赖见[下文](#依赖)。
 
 下载[字幕生成程序 gen_caption](https://github.com/AuYang261/BIT_yanhe_download/releases/tag/v2.0)，由于程序比较大，采用了分卷压缩发布。全部下载并解压，得到一个 `gen_caption.exe `可执行文件，保存在上述 `release_downloader.zip `解压的目录中，和保存视频的目录 `output/`同级，如下所示：
 
 ![image-20240409105228362](md/README/image-20240409105228362.png)
 
-下载完视频后，双击运行 `gen_caption.exe`（文件较大，需要等一会），输入数字选择视频，回车。再输入数字选择使用多大的模型，越往下效果越好，但所需时间也越长，默认使用 base 模型。第一次使用会自动下载模型（几百 M），请耐心等待。如下所示：
+下载完视频后，双击运行 `gen_caption.exe`（文件较大，需要等一会），输入数字选择视频，回车。再输入数字选择 Qwen3-ASR 模型，默认使用 `mlx-community/Qwen3-ASR-1.7B-bf16`。第一次使用会自动下载模型，请耐心等待。如下所示：
 
 ![image-20240409131033038](md/README/image-20240409131033038.png)
 
 等待程序运行完成，生成的字幕文件为 `.srt`格式，与视频文件在同级目录下，用支持字幕的播放器（如 potplayer）打开视频即可看到带字幕的视频。
 
-_tips: 语音转文字所需的时间较长，可以先观看视频，字幕生成好了再重新打开视频享受字幕。使用 GPU 大约需要几分钟，不使用 GPU 则需要更长时间。_
+_tips: 语音转文字所需的时间较长，可以先观看视频，字幕生成好了再重新打开视频享受字幕。若显存/内存压力较大，可选择 8bit、6bit 或 4bit 量化模型。_
 
 ## 依赖
 
@@ -183,8 +214,6 @@ sudo apt update
 sudo apt install ffmpeg
 ```
 
-- **若使用 GPU 运行自动生成字幕功能，需要先安装 cuda，安装方法见[cuda 安装](https://blog.csdn.net/chen565884393/article/details/127905428)。**
-
 _若想用 python 环境运行，先安装基础依赖；如果需要字幕转写，再安装可选依赖_
 
 - python，[下载](https://www.python.org/ftp/python/3.9.4/python-3.9.4-amd64.exe)并安装
@@ -194,11 +223,13 @@ _若想用 python 环境运行，先安装基础依赖；如果需要字幕转�
 uv sync
 ```
 
-- 如果需要自动生成字幕，再安装语音转文字的可选依赖：（依赖于 pytorch，若未安装 pytorch，会自动安装，但是 cpu 版本。安装 cuda 版本的 pytorch 方法见[pytorch 官网](https://pytorch.org/get-started/locally/)。）
+- 如果需要自动生成字幕，再安装语音转文字的可选依赖：
 
 ```bash
-uv sync --extra whisper
+uv sync --extra asr
 ```
+
+旧命令 `uv sync --extra whisper` 仍然可用，作用与 `asr` 相同。
 
 ## 注意
 
@@ -252,4 +283,4 @@ uv run pyinstaller --clean .\gen_caption.spec
 
 ![image-20240409095831766](md/README/image-20240409095831766.png)
 
-解决方法参考[这个](https://blog.csdn.net/qq_42324086/article/details/118280341)，将项目 `hooks`目录下的 `hook-whisper.py`和 `hook-zhconv.py`文件复制到 pyinstaller 的 hook 目录下（通常在 `python根目录\Lib\site-packages\PyInstaller\hooks`）。
+解决方法参考[这个](https://blog.csdn.net/qq_42324086/article/details/118280341)，将项目 `hooks`目录下的 `hook-mlx_audio.py`和 `hook-zhconv.py`文件复制到 pyinstaller 的 hook 目录下（通常在 `python根目录\Lib\site-packages\PyInstaller\hooks`）。

@@ -194,3 +194,129 @@ legend {
   background-color: #4682B4;
   color: white;
 }
+
+/* 课程搜索区域 */
+.search-section {
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 15px;
+  margin-bottom: 15px;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 16px;
+  border: 1px solid #ccc;
+  background: #f5f5f5;
+  color: #666;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.tab:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.tab:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.tab.active {
+  background: #4682B4;
+  color: white;
+  border-color: #4682B4;
+}
+
+.search-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.semester-select {
+  width: 160px;
+  flex-shrink: 0;
+}
+
+.search-results {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 10px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+}
+
+.search-hint {
+  text-align: center;
+  color: #999;
+  padding: 20px 10px;
+  margin: 0;
+}
+
+.course-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.course-item:last-child {
+  border-bottom: none;
+}
+
+.course-item:hover {
+  background-color: #e8f4fd;
+}
+
+.course-name {
+  font-weight: bold;
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.course-meta {
+  font-size: 12px;
+  color: #888;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 4px 0;
+}
+
+.page-btn {
+  padding: 4px 12px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.page-btn:hover {
+  background: #4682B4;
+  color: white;
+  border-color: #4682B4;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #666;
+}

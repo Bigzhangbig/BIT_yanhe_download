@@ -1,13 +1,156 @@
 document.getElementById("newTaskButton").onclick = function () {
   document.getElementById("taskPopup").style.display = "block";
+  loadSemesters();
 };
 
 document.getElementsByClassName("close")[0].onclick = function () {
   document.getElementById("taskPopup").style.display = "none";
 };
 
+// ====== 课程搜索功能 ======
+let currentSearchPage = 1;
+let searchDebounceTimer = null;
+
+function switchTab(tab) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  document.querySelector(`.tab[data-tab="${tab}"]`).classList.add("active");
+  document.getElementById("searchPanel").style.display = tab === "search" ? "block" : "none";
+  document.getElementById("myPanel").style.display = tab === "my" ? "block" : "none";
+  document.getElementById("searchResults").innerHTML = "";
+  document.getElementById("pagination").innerHTML = "";
+}
+
+function loadSemesters() {
+  fetch("/semesters")
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.code !== 0) return;
+      const select = document.getElementById("semesterFilter");
+      select.innerHTML = '<option value="">\u5168\u90e8\u5b66\u671f</option>';
+      data.data.forEach((s) => {
+        select.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+      });
+    });
+}
+
+function doSearch(page) {
+  const keyword = document.getElementById("searchKeyword").value.trim();
+  const semester = document.getElementById("semesterFilter").value;
+  const p = page || 1;
+  currentSearchPage = p;
+
+  let url = `/search_courses?keyword=${encodeURIComponent(keyword)}&page=${p}&page_size=16`;
+  if (semester) url += `&semesters=${semester}`;
+
+  document.getElementById("searchResults").innerHTML = '<p class="search-hint">\u641c\u7d22\u4e2d...</p>';
+  fetch(url)
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.code !== 0) {
+        document.getElementById("searchResults").innerHTML = `<p class="search-hint">${data.msg || "\u641c\u7d22\u5931\u8d25"}</p>`;
+        return;
+      }
+      renderCourseResults(data.data);
+    })
+    .catch((err) => {
+      document.getElementById("searchResults").innerHTML = `<p class="search-hint">\u8bf7\u6c42\u5931\u8d25: ${err}</p>`;
+    });
+}
+
+function loadMyCourses(page) {
+  const p = page || 1;
+  currentSearchPage = p;
+  document.getElementById("searchResults").innerHTML = '<p class="search-hint">\u52a0\u8f7d\u4e2d...</p>';
+  fetch(`/my_courses?page=${p}&page_size=16`)
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.code !== 0) {
+        document.getElementById("searchResults").innerHTML = `<p class="search-hint">${data.msg || "\u52a0\u8f7d\u5931\u8d25"}</p>`;
+        return;
+      }
+      renderCourseResults(data.data);
+    })
+    .catch((err) => {
+      document.getElementById("searchResults").innerHTML = `<p class="search-hint">\u8bf7\u6c42\u5931\u8d25: ${err}</p>`;
+    });
+}
+
+function renderCourseResults(resultData) {
+  const courses = resultData.data || [];
+  const container = document.getElementById("searchResults");
+  const pagination = document.getElementById("pagination");
+
+  if (!courses.length) {
+    container.innerHTML = '<p class="search-hint">\u672a\u627e\u5230\u76f8\u5173\u8bfe\u7a0b</p>';
+    pagination.innerHTML = "";
+    return;
+  }
+
+  let html = "";
+  courses.forEach((c) => {
+    const profs = (c.professors || []).map((p) => (typeof p === "string" ? p : p.name || "")).join(", ");
+    const college = c.college_name || "";
+    const year = c.school_year || "";
+    const semester = c.semester === "1" ? "\u7b2c\u4e00\u5b66\u671f" : c.semester === "2" ? "\u7b2c\u4e8c\u5b66\u671f" : c.semester || "";
+    html += `
+      <div class="course-item" onclick="selectCourse(${c.id})">
+        <div class="course-name">${c.name_zh || c.name || "\u672a\u77e5"}</div>
+        <div class="course-meta">${profs}${college ? " | " + college : ""}${year ? " | " + year + " " + semester : ""}</div>
+      </div>`;
+  });
+  container.innerHTML = html;
+
+  // 分页
+  const currentPage = resultData.current_page || 1;
+  const lastPage = resultData.last_page || 1;
+  let pageHtml = "";
+  if (lastPage > 1) {
+    if (currentPage > 1) {
+      pageHtml += `<button class="page-btn" onclick="navigatePage(${currentPage - 1})">\u4e0a\u4e00\u9875</button>`;
+    }
+    pageHtml += `<span class="page-info">\u7b2c ${currentPage} / ${lastPage} \u9875\uff0c\u5171 ${resultData.total || 0} \u95e8\u8bfe</span>`;
+    if (currentPage < lastPage) {
+      pageHtml += `<button class="page-btn" onclick="navigatePage(${currentPage + 1})">\u4e0b\u4e00\u9875</button>`;
+    }
+  } else {
+    pageHtml = `<span class="page-info">\u5171 ${resultData.total || courses.length} \u95e8\u8bfe</span>`;
+  }
+  pagination.innerHTML = pageHtml;
+}
+
+function navigatePage(page) {
+  const activeTab = document.querySelector(".tab.active").getAttribute("data-tab");
+  if (activeTab === "my") {
+    loadMyCourses(page);
+  } else {
+    doSearch(page);
+  }
+}
+
+function selectCourse(courseId) {
+  document.getElementById("courseId").value = courseId;
+  document.getElementById("searchResults").innerHTML = `<p class="search-hint">\u5df2\u9009\u62e9\u8bfe\u7a0b ID: ${courseId}</p>`;
+  document.getElementById("pagination").innerHTML = "";
+  // 自动触发获取课程信息
+  fetchCourseNumber();
+}
+
+// 回车键搜索
+document.addEventListener("DOMContentLoaded", () => {
+  const searchInput = document.getElementById("searchKeyword");
+  if (searchInput) {
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doSearch();
+      }
+    });
+  }
+});
+
 // Implement the logic to fetch course number and handle form submission
 function fetchCourseNumber() {
+  document.getElementById("courseList").innerHTML = '<li>\u52a0\u8f7d\u4e2d...</li>';
   fetch(`/get_course?course_id=${document.getElementById("courseId").value}&auth=${document.getElementById("auth").value}`)
     .then((response) => response.json())
     .then((data) => {
@@ -17,9 +160,9 @@ function fetchCourseNumber() {
         alert(data.msg);
       }
       document.getElementById("courseList").innerHTML = ``;
-      document.getElementById("courseName11").innerHTML = `课程名: <b>${data.courseName == "" ? "未知" : data.courseName
+      document.getElementById("courseName11").innerHTML = `\u8bfe\u7a0b\u540d: <b>${data.courseName == "" ? "\u672a\u77e5" : data.courseName
         }</b>`;
-      document.getElementById("professor11").innerHTML = `老师: <b>${data.professor == "" ? "未知" : data.professor
+      document.getElementById("professor11").innerHTML = `\u8001\u5e08: <b>${data.professor == "" ? "\u672a\u77e5" : data.professor
         }</b>`;
       let courseListHTML = "";
       for (let i = 0; i < data.videoList.length; i++) {
