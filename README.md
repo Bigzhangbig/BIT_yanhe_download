@@ -18,9 +18,14 @@
 
 ### 登录延河课堂
 
-新版的延河课堂要求登录才能查看课程列表，故需要先获取登录后的身份认证码。**主推 `login_sso_requests.py`（纯 requests，无浏览器）**；`auth_patchright.py`（Patchright 半自动）降级为 fallback，**仅在 requests 跑不过时（sso 加 RBA 真校验 / 加图形验证码）再使用**。
+新版的延河课堂要求登录才能查看课程列表，故需要先获取登录后的身份认证码。**主推 `login_sso_unified.py`（3 层 fallback 全自动）**：
+- Tier 1: `login_sso_requests.py` 纯 requests（80% 情况，4-5s）
+- Tier 2: `headless_login.py` headless patchright（撞非交互 captcha，10-30s）
+- Tier 3: `auth_patchright.py` 有头 patchright（必须人交互时, 终端提示用户手跑）
 
-#### 主推：纯 requests 自动登录（推荐，N100 24/7 友好）
+`auth_patchright.py` 仍保留作为最后兜底，**仅在 Tier 1+2 都跑不过时再使用**。
+
+#### 主推：3 层 fallback 全自动登录（推荐，N100 24/7 友好）
 
 在项目根目录的 `.env` 填入 `STUDENT_ID` + `PASSWORD`（参考 `.env.example`）：
 
@@ -29,18 +34,33 @@
 cp .env.example .env
 # 编辑 .env 填学号和密码
 
-# 跑：默认读 .env 凭据，全程脱敏不打密码
-uv run python login_sso_requests.py
+# 主入口：一条命令走 3 层 fallback
+uv run python login_sso_unified.py
 ```
 
-**E2E 流程**（自动完成，无需弹浏览器）：
+**E2E 流程**：
 
-1. `GET https://sso.bit.edu.cn/cas/login?service=https://cbiz.yanhekt.cn/v1/cas/callback`
+1. **Tier 1** `login_sso_requests.py` 纯 requests（默认 4-5s）
+   → `GET https://sso.bit.edu.cn/cas/login?service=https://cbiz.yanhekt.cn/v1/cas/callback`
    → 拿 `SESSION` cookie + `<p id="login-page-flowkey">` 里的 execution
-2. `POST https://sso.bit.edu.cn/cas/login`（form: username/password/type/execution/...）
+   → `POST /cas/login`（form: username/password/type/execution/...）
    → 302 → `https://cbiz.yanhekt.cn/v1/cas/callback?ticket=ST-...`
-3. `GET /v1/cas/callback?ticket=...` → 302 → `https://www.yanhekt.cn/login?token=<32 hex>&type=Bearer&expired_at=...`
-4. 端到端验证：`/v2/course/private/list` 返该用户真实课程数
+   → 302 → `https://www.yanhekt.cn/login?token=<32 hex>&type=Bearer&expired_at=...`
+2. **Tier 2** `headless_login.py` headless patchright（撞非交互 captcha 时）
+   → Patchright Python API + persistent profile 复用 TGC
+   → 自动填账号密码 + 等 token 出现
+3. **Tier 3** `auth_patchright.py` 有头 patchright（必须人交互的 captcha）
+   → 脚本打印提示, 用户手跑有头浏览器完成
+
+退出码：0 成功 / 1 凭据失败 / 2 token 失效 / 3 必须人交互 / 4 密码错
+
+#### 独立入口（调试用）
+
+```bash
+uv run python login_sso_requests.py   # 只跑 Tier 1
+uv run python headless_login.py        # 只跑 Tier 2 (headless)
+uv run python auth_patchright.py       # 只跑 Tier 3 (有头, 浏览器弹窗)
+```
 
 需要二次身份验证时，脚本会自动检测并按类型处理：
 
