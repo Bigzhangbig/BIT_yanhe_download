@@ -16,6 +16,35 @@ DEFAULT_URL = "https://www.yanhekt.cn/recordCourse"
 JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 TOKEN_RE = re.compile(r'"token"\s*:\s*"([^"]+)"')
 ESCAPED_TOKEN_RE = re.compile(r'\\"token\\"\s*:\s*\\"([^"\\]+)\\"')
+HEX32_RE = re.compile(r"\b[0-9a-f]{32}\b")
+
+
+def _is_yhe_token(token: str) -> bool:
+    """延河 Bearer token 是 32 字符 hex(服务端 session id,不是 JWT)。"""
+    if not isinstance(token, str):
+        return False
+    token = token.strip()
+    if len(token) != 32:
+        return False
+    return all(c in "0123456789abcdefABCDEF" for c in token)
+
+
+def _is_jwt_token(token: str) -> bool:
+    """兼容老 JWT 格式(虽然延河实际不用,但保险起见保留)。"""
+    if not isinstance(token, str):
+        return False
+    token = token.strip()
+    if not token.startswith("eyJ"):
+        return False
+    parts = token.split(".")
+    if len(parts) != 3:
+        return False
+    return all(1 <= len(p) <= 4096 for p in parts)
+
+
+def _is_valid_token(token: str) -> bool:
+    """接受延河 32 hex 主格式,顺便兼容 JWT。"""
+    return _is_yhe_token(token) or _is_jwt_token(token)
 
 
 def default_profile_dir():
@@ -120,7 +149,7 @@ def get_state_file(args):
 def extract_from_json(value):
     if isinstance(value, dict):
         token = value.get("token")
-        if isinstance(token, str) and token.strip():
+        if isinstance(token, str) and _is_valid_token(token.strip()):
             return token.strip()
         for item in value.values():
             token = extract_from_json(item)
@@ -141,10 +170,13 @@ def extract_auth_token(raw):
     if not text or text in {"null", "undefined", "None"}:
         return ""
 
-    for regex in (TOKEN_RE, ESCAPED_TOKEN_RE, JWT_RE):
+    for regex in (TOKEN_RE, ESCAPED_TOKEN_RE, JWT_RE, HEX32_RE):
         match = regex.search(text)
         if match:
-            return match.group(1) if match.lastindex else match.group(0)
+            candidate = match.group(1) if match.lastindex else match.group(0)
+            if _is_valid_token(candidate):
+                return candidate
+            # 不是合法格式,继续尝试其他正则(防 storage_state 里多个 token 字段)
 
     candidates = [text]
     candidates.extend(line.strip() for line in text.splitlines() if line.strip())
@@ -156,7 +188,9 @@ def extract_auth_token(raw):
     for candidate in candidates:
         candidate = candidate.strip().strip("'")
         try:
-            return extract_from_json(json.loads(candidate))
+            token = extract_from_json(json.loads(candidate))
+            if token:
+                return token
         except json.JSONDecodeError:
             continue
     return ""
@@ -198,16 +232,21 @@ def extract_auth_from_profile(profile):
         text = path.read_bytes().decode("utf-8", errors="ignore")
         for match in TOKEN_RE.finditer(text):
             token = match.group(1).strip()
-            if token:
+            if token and _is_valid_token(token):
                 candidates.append((path.stat().st_mtime, match.start(), token))
         for match in ESCAPED_TOKEN_RE.finditer(text):
             token = match.group(1).strip()
-            if token:
+            if token and _is_valid_token(token):
+                candidates.append((path.stat().st_mtime, match.start(), token))
+        # 兜底:延河 token 是 32 hex,可能 leveldb 里就裸存没包在 JSON 里
+        for match in HEX32_RE.finditer(text):
+            token = match.group(0).strip()
+            if token and _is_valid_token(token):
                 candidates.append((path.stat().st_mtime, match.start(), token))
     if candidates:
         candidates.sort(key=lambda item: (item[0], item[1]))
         return candidates[-1][2]
-    raise RuntimeError("未能从 Patchright profile 的 Local Storage 中提取 token。")
+    raise RuntimeError("未能从 Patchright profile 的 Local Storage 中提取合法延河 token。")
 
 
 def extract_auth(args):
@@ -226,8 +265,14 @@ def wait_for_valid_auth(args):
         try:
             token = extract_auth(args)
             utils.headers["Authorization"] = "Bearer " + token
-            if args.course_id and not utils.test_auth(args.course_id):
-                raise RuntimeError("已读取到 token，但课程鉴权验证失败。")
+            # 默认走纯鉴权验证(/v2/course/private/list),不依赖 course-id;
+            # 如果用户传了 --course-id,则用课程接口做更严格的二次确认
+            if args.course_id:
+                if not utils.test_auth(args.course_id):
+                    raise RuntimeError("已读取到 token，但课程鉴权验证失败。")
+            else:
+                if not utils.test_token_valid():
+                    raise RuntimeError("已读取到 token，但鉴权验证失败(token 无效或过期)。")
             return token
         except Exception as exc:
             message = str(exc)
