@@ -76,52 +76,91 @@ def _detect_2fa_requirement(html: str) -> dict:
 
     返回 dict:
       {
-        "type": "none" | "captcha" | "sms" | "email" | "webauthn" | "qr" | "unknown",
+        "type": "none" | "captcha" | "slider" | "recaptcha" | "sms" | "email"
+              | "webauthn" | "qr" | "unknown",
         "captcha_url": str | None,
         "prompt": str,  # 给用户看的提示
         "error_msg": str,  # 服务器返回的错误信息
+        "browser_required": bool,  # True = 纯 requests 搞不定,需要降级 patchright
       }
     """
-    info = {"type": "none", "captcha_url": None, "prompt": "", "error_msg": ""}
+    info = {
+        "type": "none", "captcha_url": None, "prompt": "", "error_msg": "",
+        "browser_required": False,
+    }
 
     # 错误信息: <span id="showErrorTip">...</span> 或 通用错误
     m = re.search(r'<span id="showErrorTip"[^>]*>(.*?)</span>', html, re.DOTALL)
     if m:
         info["error_msg"] = re.sub(r'<[^>]+>', '', m.group(1)).strip()
 
-    # 验证码图片: <img ... id="captchaImg" src="..."> 或 <p id="captcha-url">
+    # ===== 4 种 captcha 标识识别 (从 SSO login-page-flowkey 同页抓的隐藏 p) =====
+    # 1) 网易易盾滑块
+    m = re.search(r'<p id="netEaseCaptchaId"[^>]*>([^<]+)</p>', html)
+    if m and m.group(1).strip():
+        info["type"] = "slider"
+        info["prompt"] = "网易易盾滑块验证码(需拖动)"
+        info["browser_required"] = True
+        return info
+    # 2) Google reCAPTCHA / hCaptcha (siteKey 非空)
+    m = re.search(r'<p id="siteKey"[^>]*>([^<]+)</p>', html)
+    if m and m.group(1).strip():
+        info["type"] = "recaptcha"
+        info["prompt"] = f"reCAPTCHA / hCaptcha(siteKey={m.group(1).strip()[:12]}...)"
+        info["browser_required"] = True
+        return info
+    # 3) 隐形 reCAPTCHA
+    m = re.search(r'<p id="recaptcha-invisible"[^>]*>([^<]+)</p>', html)
+    if m and m.group(1).strip() and m.group(1).strip().lower() not in ("false", "0", ""):
+        info["type"] = "recaptcha_invisible"
+        info["prompt"] = "隐形 reCAPTCHA v3(行为指纹)"
+        info["browser_required"] = True
+        return info
+    # 4) 自定义文本型 captcha(captchaId + captchaImg 都有)
     m = re.search(r'<img[^>]*id="captchaImg"[^>]*src="([^"]+)"', html)
     if m:
         info["captcha_url"] = m.group(1)
         info["type"] = "captcha"
-        info["prompt"] = "图形验证码"
+        info["prompt"] = "图形验证码(文本型,直接输入)"
         return info
     m = re.search(r'<p id="captcha-url"[^>]*>([^<]+)</p>', html)
     if m and m.group(1).strip():
         info["captcha_url"] = m.group(1).strip()
         info["type"] = "captcha"
-        info["prompt"] = "图形验证码"
+        info["prompt"] = "图形验证码(文本型,直接输入)"
+        return info
+    # 兜底: <p id="captchaId"> 非空
+    m = re.search(r'<p id="captchaId"[^>]*>([^<]+)</p>', html)
+    if m and m.group(1).strip():
+        # 这是文本 captcha 标识,具体图片 URL 还得在 form 里找;若找不到就先报错
+        info["type"] = "captcha"
+        info["prompt"] = "图形验证码(需带 session 拉图片)"
+        # 兜底 URL
+        info["captcha_url"] = "https://sso.bit.edu.cn/cas/captcha"
         return info
 
+    # ===== 二次验证类型 =====
     # 短信 / 邮件: form 切换到 smsLogin / mailLogin tab
     if 'id="current-login-type">smsLogin' in html or 'class="code">smsLogin' in html:
         info["type"] = "sms"
-        info["prompt"] = "短信验证码"
+        info["prompt"] = "短信验证码(终端输入 6 位)"
         return info
     if 'id="current-login-type">mailLogin' in html or 'class="code">mailLogin' in html:
         info["type"] = "email"
-        info["prompt"] = "邮件验证码"
+        info["prompt"] = "邮件验证码(终端输入 6 位)"
         return info
 
     # 通行密钥: webauthn
     if 'id="current-login-type">webauthn' in html:
         info["type"] = "webauthn"
-        info["prompt"] = "通行密钥(WebAuthn)"
+        info["prompt"] = "通行密钥(WebAuthn,需物理设备/Face ID/Touch ID)"
+        info["browser_required"] = True
         return info
     # i北理扫码
     if 'id="current-login-type">shuxiQr' in html:
         info["type"] = "qr"
-        info["prompt"] = "i北理扫码"
+        info["prompt"] = "i北理扫码(需 i北理 APP)"
+        info["browser_required"] = True
         return info
 
     if info["error_msg"]:
@@ -269,6 +308,31 @@ def login_sso_requests(username: str, password: str, *, skip_rba: bool = False, 
                     f"captcha 后仍失败: type={two_fa2['type']} err={two_fa2['error_msg']!r} "
                     f"body[:300]={r2.text[:300]}"
                 )
+        elif two_fa.get("browser_required"):
+            # slider / reCAPTCHA / WebAuthn / QR — 纯 requests 搞不定
+            # 给出降级到 patchright 的清晰指令
+            fallback_cmd = "uv run python auth_patchright.py"
+            if two_fa["type"] == "slider":
+                detail = "网易易盾滑块需拖动匹配拼图"
+            elif two_fa["type"] == "recaptcha":
+                detail = "Google reCAPTCHA 需勾选 '我不是机器人' / 选图"
+            elif two_fa["type"] == "recaptcha_invisible":
+                detail = "隐形 reCAPTCHA v3 分析行为指纹,纯 requests 无法模拟"
+            elif two_fa["type"] == "webauthn":
+                detail = "WebAuthn 需 Touch ID / Face ID / 物理密钥"
+            elif two_fa["type"] == "qr":
+                detail = "i北理扫码需打开 i北理 APP 扫码"
+            else:
+                detail = "未知浏览器交互"
+            raise RuntimeError(
+                f"需要 {two_fa['prompt']}\n"
+                f"  原因: {detail}\n"
+                f"  修法: 降级到 patchright 跑浏览器(用户手输完拿到 token 后,"
+                f"auth.txt 仍可被 N100 scheduler 用):\n"
+                f"    {fallback_cmd}\n"
+                f"  修法 2: 对接打码平台(2Captcha / 超级鹰 / yescaptcha) - 需付费,"
+                f"复杂 captcha 也不一定能解"
+            )
         elif two_fa["type"] in ("sms", "email"):
             # 二次验证需要手机/邮件验证码
             if verbose:
@@ -291,16 +355,6 @@ def login_sso_requests(username: str, password: str, *, skip_rba: bool = False, 
                     f"{two_fa['prompt']} 后仍失败: type={two_fa2['type']} "
                     f"err={two_fa2['error_msg']!r} body[:300]={r2.text[:300]}"
                 )
-        elif two_fa["type"] == "webauthn":
-            raise RuntimeError(
-                f"需要 {two_fa['prompt']}(物理密钥/Face ID/Touch ID 等),"
-                f"纯 requests 无法完成,请降级到 auth_patchright.py 跑浏览器"
-            )
-        elif two_fa["type"] == "qr":
-            raise RuntimeError(
-                f"需要 {two_fa['prompt']}(i北理 APP 扫码),"
-                f"纯 requests 无法完成,请降级到 auth_patchright.py 跑浏览器"
-            )
         else:
             # 未知 / 密码错 / 其它错误
             err = two_fa["error_msg"] or r2.text[:200]

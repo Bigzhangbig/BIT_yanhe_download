@@ -42,12 +42,29 @@ uv run python login_sso_requests.py
 3. `GET /v1/cas/callback?ticket=...` → 302 → `https://www.yanhekt.cn/login?token=<32 hex>&type=Bearer&expired_at=...`
 4. 端到端验证：`/v2/course/private/list` 返该用户真实课程数
 
-需要二次身份验证时（SMS / 邮件验证码 / 图形验证），脚本会提示手动输入：
+需要二次身份验证时，脚本会自动检测并按类型处理：
 
-```bash
-uv run python login_sso_requests.py --code-prompt '请输入延河发送的验证码'
-# 看到 "[login] 需要二次验证,提示: 请输入延河发送的验证码" 时在终端敲验证码回车
+| SSO 触发条件 | 类型 | 处理方式 |
+|---|---|---|
+| `<p id="netEaseCaptchaId">` 非空 | 网易易盾滑块 | ❌ 报错降级到 `auth_patchright.py`（需拖动） |
+| `<p id="siteKey">` 非空 | reCAPTCHA / hCaptcha | ❌ 报错降级到 `auth_patchright.py`（需勾选） |
+| `<p id="recaptcha-invisible">true` | 隐形 reCAPTCHA v3 | ❌ 报错降级（行为指纹难模拟） |
+| `<img id="captchaImg">` 或 `<p id="captcha-url">` | 文本型图片验证码 | ✅ 下载到 `/tmp/yhe_captcha.<ext>` + macOS `open` 弹 Preview + 终端 prompt 输入 |
+| `<p id="current-login-type">smsLogin` | 短信验证码 | ✅ 终端 prompt 输入 6 位 |
+| `<p id="current-login-type">mailLogin` | 邮件验证码 | ✅ 终端 prompt 输入 6 位 |
+| `<p id="current-login-type">webauthn` | 通行密钥 | ❌ 报错降级（需 Touch ID / 物理密钥） |
+| `<p id="current-login-type">shuxiQr` | i北理扫码 | ❌ 报错降级（需 i北理 APP） |
+
+文本型 captcha 触发后效果：
+
 ```
+[login] 需要图形验证码: https://sso.bit.edu.cn/cas/captcha?token=xxx
+[login] 验证码图片已存: /tmp/yhe_captcha.jpg (macOS 会自动用 Preview 打开)
+
+[prompt] 请输入图中验证码: ▌
+```
+
+降级路径：脚本报错时会自动提示 `uv run python auth_patchright.py`，用户手输完拿到的 token 仍写到 `auth.txt`，N100 scheduler 可继续用。
 
 #### Fallback：Patchright 半自动（requests 跑不过时再用）
 
