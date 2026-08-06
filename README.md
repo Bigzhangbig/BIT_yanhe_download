@@ -52,7 +52,7 @@ uv run python login_sso_unified.py
 3. **Tier 3** `auth_patchright.py` 有头 patchright（必须人交互的 captcha）
    → 脚本打印提示, 用户手跑有头浏览器完成
 
-退出码：0 成功 / 1 凭据失败 / 2 token 失效 / 3 必须人交互 / 4 密码错
+退出码：0 成功 / 1 requests 失败 / 2 headless 失败 / 3 必须人交互 / 4 密码错
 
 #### 独立入口（调试用）
 
