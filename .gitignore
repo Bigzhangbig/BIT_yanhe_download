@@ -15,3 +15,5 @@ release_*/
 auth.txt
 .env
 .qoder/
+tencent_asr_transcribe.py
+transcribe_whisper.sh
