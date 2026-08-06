@@ -172,7 +172,7 @@ def login_sso(student_id=None, password=None):
 
     # 备用解析
     if not token and "token=" in location:
-        token = location.split("token=")[1].split("&")[0]
+        token = location.split("token=")[1].split("&")[0]  # gitleaks:ignore
 
     # 如果第一次重定向没有 token，继续跟随重定向链
     if not token:
@@ -183,7 +183,7 @@ def login_sso(student_id=None, password=None):
             qs2 = urllib.parse.parse_qs(parsed2.query)
             token = qs2.get("token", [""])[0]
             if not token and "token=" in location2:
-                token = location2.split("token=")[1].split("&")[0]
+                token = location2.split("token=")[1].split("&")[0]  # gitleaks:ignore
 
     if not token:
         raise RuntimeError("[SSO] Token 解析失败，未能从重定向中提取到 token")
