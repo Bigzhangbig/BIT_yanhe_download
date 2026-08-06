@@ -1,10 +1,12 @@
 import multiprocessing
+import os
 import threading
 import time
 import uuid
 import webbrowser
 from queue import Empty, Queue
 
+from dotenv import load_dotenv
 from flask import (
     Flask,
     jsonify,
@@ -15,6 +17,8 @@ from flask import (
 
 import m3u8dl
 import utils
+
+load_dotenv()
 
 app = Flask(__name__, static_folder="webui")
 
@@ -149,8 +153,12 @@ def get_course():
     if auth:
         utils.write_auth(auth)
     if not utils.test_auth(courseID=course_id):
-        utils.remove_auth()
-        return jsonify({"code": 403, "msg": "。".join(utils.auth_prompt(False))})
+        # 尝试 SSO 自动登录
+        if utils.ensure_auth(courseID=course_id):
+            pass
+        else:
+            utils.remove_auth()
+            return jsonify({"code": 403, "msg": "。".join(utils.auth_prompt(False))})
     try:
         videoList, courseName, professor = utils.get_course_info(courseID=course_id)
     except Exception:
@@ -225,6 +233,77 @@ def kill_task():
         return jsonify({"status": "ok"})
     all_task_status[id]["canceled"] = True
     return jsonify({"status": "ok"})
+
+
+@app.route("/sso_login", methods=["POST"])
+def sso_login():
+    """通过 BIT 统一身份认证登录"""
+    data = request.json or {}
+    student_id = data.get("student_id", "")
+    password = data.get("password", "")
+    course_id = data.get("course_id", "")
+    try:
+        token = utils.login_sso(student_id=student_id, password=password)
+        utils.write_auth(token)
+        if course_id and not utils.test_auth(courseID=course_id):
+            return jsonify({"code": 403, "msg": "SSO 登录成功，但课程验证失败"})
+        return jsonify({"code": 0, "msg": "登录成功"})
+    except Exception as e:
+        return jsonify({"code": 401, "msg": str(e)})
+
+
+@app.route("/sso_config")
+def sso_config():
+    """检查 .env 中是否配置了学号和密码"""
+    load_dotenv()
+    has_student_id = bool(os.getenv("STUDENT_ID"))
+    has_password = bool(os.getenv("PASSWORD"))
+    return jsonify({
+        "has_student_id": has_student_id,
+        "has_password": has_password,
+        "configured": has_student_id and has_password,
+    })
+
+
+@app.route("/search_courses")
+def search_courses():
+    """搜索录播课程"""
+    keyword = request.args.get("keyword", "")
+    page = int(request.args.get("page", 1))
+    page_size = int(request.args.get("page_size", 16))
+    semesters_str = request.args.get("semesters", "")
+    semesters = [int(s) for s in semesters_str.split(",") if s.strip()] if semesters_str else None
+    try:
+        if not utils.ensure_auth():
+            return jsonify({"code": 403, "msg": "请先登录"})
+        result = utils.search_courses(keyword=keyword, page=page, page_size=page_size, semesters=semesters)
+        return jsonify({"code": 0, "data": result})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)})
+
+
+@app.route("/my_courses")
+def my_courses():
+    """获取个人录播课程"""
+    page = int(request.args.get("page", 1))
+    page_size = int(request.args.get("page_size", 16))
+    try:
+        if not utils.ensure_auth():
+            return jsonify({"code": 403, "msg": "请先登录"})
+        result = utils.get_my_courses(page=page, page_size=page_size)
+        return jsonify({"code": 0, "data": result})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)})
+
+
+@app.route("/semesters")
+def semesters():
+    """获取学期标签列表"""
+    try:
+        result = utils.get_semesters()
+        return jsonify({"code": 0, "data": result})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)})
 
 
 @app.route("/<path:path>")
