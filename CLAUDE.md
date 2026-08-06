@@ -36,9 +36,17 @@ Optional subtitle generation (after downloading videos):
 - `main.py` / `gui.py` / `webui_interface.py` — Three UIs that orchestrate `utils.get_course_info()`, video selection, and `m3u8dl.M3u8Download()`.
 - `gen_caption.py` — Standalone script. Extracts audio with ffmpeg, transcribes with MLX Qwen3-ASR, and writes `.srt` subtitles (simplified Chinese via `zhconv`).
 
+### Login Modules (SSO 3-layer fallback)
+
+- `login_sso_unified.py` - Main entry point. Orchestrates 3-layer fallback: Tier 1 `login_sso_requests.py` -> Tier 2 `headless_login.py` -> Tier 3 `auth_patchright.py`.
+- `login_sso_requests.py` - Tier 1. Pure-requests CAS 3.0 login against `sso.bit.edu.cn`, no browser. Handles 4 captcha types (image/SMS/email/invisible).
+- `headless_login.py` - Tier 2. Headless Patchright with persistent profile, reuses TGC cookie. Used when Tier 1 hits a non-interactive captcha.
+- `auth_patchright.py` - Tier 3. Headful Patchright browser, user completes interactive captcha manually. Last resort.
+- `capture_sso_flow.py` / `capture_sso_fresh.py` - SSO flow capture/debugging utilities.
+
 ### Authentication Flow
 
-1. **Token acquisition** — two ways (主推 → fallback):
+1. **Token acquisition** — run `login_sso_unified.py` for 3-layer fallback (see Login Modules above):
    - **`login_sso_requests.py` (recommended)**: pure-requests CAS 3.0 login against `sso.bit.edu.cn`. Reads `STUDENT_ID` + `PASSWORD` from `.env`, no browser needed. Supports 2FA code prompt via `--code-prompt` for SMS/email/captcha challenges. N100 24/7 friendly.
    - **`auth_patchright.py` (fallback)**: Patchright-driven browser session. Use only when `login_sso_requests.py` can't bypass an SSO challenge (e.g. hard captcha). Browser profile is persistent at `~/Library/Application Support/BIT_yanhe_download/patchright-profile/`.
 2. The Bearer token is extracted (either from CAS callback URL `?token=` or from `localStorage.auth`), saved to `auth.txt` and injected into the `Authorization` header in `utils.py`.
