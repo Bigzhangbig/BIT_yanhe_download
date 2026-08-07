@@ -318,6 +318,29 @@ def open_browser_and_wait_for_auth(args):
     return token
 
 
+def headful_login(timeout=300, auth_file="auth.txt", course_id="", url=None, profile=None):
+    """有头浏览器登录: 自动打开浏览器, 用户在弹窗中手动登录(含 captcha),
+    脚本轮询提取 token。供 login_sso_unified Tier 3 调用, 无需用户终端跑脚本。
+
+    返回 token 字符串。需要 patchright CLI 在 PATH 中。
+    """
+    args = argparse.Namespace(
+        url=url or DEFAULT_URL,
+        profile=str(profile or default_profile_dir()),
+        state_file="",
+        browser="chromium",
+        timeout=timeout,
+        interval=2.0,
+        auth_file=auth_file,
+        course_id=course_id,
+        skip_open=False,
+        print_token=False,
+        auth_only=True,
+    )
+    print("[headful] 正在打开浏览器, 请在弹出的窗口中完成登录(含验证码)...")
+    return open_browser_and_wait_for_auth(args)
+
+
 def run_downloader_main(args):
     import main as downloader_main
 

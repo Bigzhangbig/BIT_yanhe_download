@@ -338,24 +338,27 @@ function selectAll(select) {
 async function ssoLogin() {
   const btn = event.target;
   btn.disabled = true;
-  btn.textContent = "登录中...";
+  btn.textContent = "登录中(可能弹浏览器)...";
+  let timer = setTimeout(() => {
+    btn.textContent = "请在弹出的浏览器中完成登录...";
+  }, 10000);
   try {
     const res = await fetch("/sso_login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ course_id: document.getElementById("courseId").value }),
     }).then((r) => r.json());
+    clearTimeout(timer);
     if (res.code === 0) {
       alert("SSO 登录成功 (auth.txt 已更新)");
       document.getElementById("auth").value = "";
       document.getElementById("auth").placeholder = "已通过 SSO 登录";
-    } else if (res.code === 402) {
-      alert(res.msg);
     } else {
-      alert("SSO 登录失败: " + res.msg);
+      alert("SSO 登录结果: " + res.msg);
     }
   } catch (e) {
-    alert("SSO 登录请求失败: " + e);
+    clearTimeout(timer);
+    alert("SSO 登录请求失败(可能超时): " + e);
   } finally {
     btn.disabled = false;
     btn.textContent = "SSO 登录";

@@ -237,31 +237,32 @@ def kill_task():
 
 @app.route("/sso_login", methods=["POST"])
 def sso_login():
-    """通过 BIT SSO 登录 (login_sso_requests, Tier1 纯 requests, 不阻塞)。
-    撞到需要人交互的验证码时返回 402 提示终端跑 login_sso_unified.py。
+    """通过 BIT SSO 登录 (3 层 fallback: requests -> headless -> 有头自动启动)。
+    完整处理所有登录场景, 撞 captcha 时自动启动有头浏览器弹窗,
+    用户在弹窗中完成登录, 无需终端跑任何脚本。
+    注意: Tier 3 有头浏览器会弹窗, 可能耗时几分钟, threaded 模式下不阻塞其他请求。
     """
     data = request.json or {}
-    student_id = data.get("student_id", "")
-    password = data.get("password", "")
+    student_id = data.get("student_id", "") or None
+    password = data.get("password", "") or None
     course_id = data.get("course_id", "")
-    if not student_id or not password:
-        load_dotenv()
-        student_id = os.getenv("STUDENT_ID", "")
-        password = os.getenv("PASSWORD", "")
-    if not student_id or not password:
-        return jsonify({"code": 400, "msg": "未提供学号密码, 且 .env 未配置 STUDENT_ID/PASSWORD"})
     try:
-        from login_sso_requests import login_sso_requests
-        token = login_sso_requests(student_id, password, verbose=False)
-        utils.write_auth(token)
-        if course_id and not utils.test_auth(courseID=course_id):
-            return jsonify({"code": 403, "msg": "SSO 登录成功，但课程验证失败"})
-        return jsonify({"code": 0, "msg": "登录成功"})
+        from login_sso_unified import run_unified_login, EXIT_OK, EXIT_PASSWORD_WRONG
+        rc = run_unified_login(
+            username=student_id,
+            password=password,
+            quiet=False,
+            auth_file="auth.txt",
+        )
+        if rc == EXIT_OK and utils.read_auth():
+            if course_id and not utils.test_auth(courseID=course_id):
+                return jsonify({"code": 403, "msg": "SSO 登录成功，但课程验证失败"})
+            return jsonify({"code": 0, "msg": "登录成功"})
+        if rc == EXIT_PASSWORD_WRONG:
+            return jsonify({"code": 401, "msg": "账号或密码错误, 请检查 .env 中的 STUDENT_ID/PASSWORD"})
+        return jsonify({"code": 401, "msg": f"SSO 登录失败 (exit={rc}), 请重试或检查凭据"})
     except Exception as e:
-        msg = str(e)
-        if "captcha" in msg.lower() or "交互" in msg or "验证码" in msg:
-            return jsonify({"code": 402, "msg": f"撞到需要人交互的验证码, 请在终端跑 uv run python login_sso_unified.py: {msg}"})
-        return jsonify({"code": 401, "msg": msg})
+        return jsonify({"code": 401, "msg": str(e)})
 
 
 @app.route("/sso_config")
@@ -328,4 +329,4 @@ if __name__ == "__main__":
     t = threading.Thread(target=execute_tasks)
     t.start()
     webbrowser.open("http://127.0.0.1:5001/")
-    app.run(debug=False, host="0.0.0.0", use_reloader=False, port=5001)
+    app.run(debug=False, host="0.0.0.0", use_reloader=False, port=5001, threaded=True)

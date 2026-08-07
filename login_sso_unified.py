@@ -104,17 +104,26 @@ def run_unified_login(
             return _write_and_verify(token, auth_file, "tier2")
         except Exception as e:
             if _is_browser_interaction_error(e):
-                print(f"[unified] Tier 2 撞到必须人交互的 captcha: {e}")
-                _print_headful_prompt()
-                return EXIT_HEADLESS_INTERACTIVE
-            print(f"[unified] Tier 2 失败: {e}")
-            _print_headful_prompt()
-            return EXIT_HEADLESS_FAILED
+                print(f"[unified] Tier 2 撞到必须人交互的 captcha, 降级到 Tier 3 有头: {e}")
+            else:
+                print(f"[unified] Tier 2 失败, 降级到 Tier 3 有头: {e}")
+            # 走 Tier 3, 不 return
     else:
         if not quiet:
             print("[unified] 跳过 Tier 2 (--skip-tier2)")
-        _print_headful_prompt()
-        return EXIT_HEADLESS_INTERACTIVE
+
+    # ===== Tier 3: 有头 patchright (自动启动浏览器, 不需用户终端跑脚本) =====
+    if not quiet:
+        print("[unified] === Tier 3: 有头 patchright (自动启动浏览器, 请在弹窗中完成登录) ===")
+    try:
+        from auth_patchright import headful_login
+        token = headful_login(timeout=300, auth_file=auth_file)
+        if token:
+            return _write_and_verify(token, auth_file, "tier3")
+        return EXIT_HEADLESS_FAILED
+    except Exception as e:
+        print(f"[unified] Tier 3 失败: {e}")
+        return EXIT_HEADLESS_FAILED
 
 
 def _is_browser_interaction_error(e: Exception) -> bool:
