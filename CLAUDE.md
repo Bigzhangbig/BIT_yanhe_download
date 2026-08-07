@@ -41,7 +41,7 @@ Optional subtitle generation (after downloading videos):
 - `login_sso_unified.py` - Main entry point. Orchestrates 3-layer fallback: Tier 1 `login_sso_requests.py` -> Tier 2 `headless_login.py` -> Tier 3 `auth_patchright.py`.
 - `login_sso_requests.py` - Tier 1. Pure-requests CAS 3.0 login against `sso.bit.edu.cn`, no browser. Handles 4 captcha types (image/SMS/email/invisible).
 - `headless_login.py` - Tier 2. Headless Patchright with persistent profile, reuses TGC cookie. Used when Tier 1 hits a non-interactive captcha.
-- `auth_patchright.py` - Tier 3. Headful Patchright browser, user completes interactive captcha manually. Last resort.
+- `auth_patchright.py` - Tier 3. 自动启动有头 Patchright 浏览器(headful_login), 用户在弹窗完成交互式 captcha, 不需终端跑脚本。
 - `capture_sso_flow.py` / `capture_sso_fresh.py` - SSO flow capture/debugging utilities.
 
 ### Authentication Flow

@@ -142,6 +142,8 @@ uv run python webui_interface.py
 
 而后在打开的网页中新建任务即可。
 
+网页中点击「SSO 登录」按钮可自动走 3 层 fallback 登录（requests -> headless -> 有头浏览器）。若 .env 配置了 STUDENT_ID + PASSWORD 则全自动；撞到验证码时会自动弹出浏览器窗口让用户完成，无需在终端运行任何脚本。
+
 ### macOS 运行
 
 macOS 可以直接从源码运行，无需 Windows 的 `.exe` 文件。建议先安装 `uv` 和 `ffmpeg`：
