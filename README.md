@@ -4,11 +4,16 @@
 
 本项目 fork 自 [BITNP/BIT_yanhe_download](https://github.com/BITNP/BIT_yanhe_download)（upstream，最早由个人作者 [AuYang261](https://github.com/AuYang261/BIT_yanhe_download) 创建）。在原项目基础上，本 fork 增加了以下增强（upstream release 不包含这些功能，建议从源码运行本 fork）：
 
-- **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` headful_login（有头自动启动）
+- **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` `headful_login`（自动启动有头浏览器完成剩余登录）
+- **`ensure_auth()` 自动 SSO**：所有下载入口（CLI / TUI / WebUI）`auth.txt` 失效时自动走 3 层 fallback，用户零操作
+- **macOS 全面支持**：`get_ffmpeg_command()` 智能 ffmpeg 查找（env / cwd / homebrew / PATH 优先级）、PyInstaller frozen 路径、patchright macOS profile 路径
+- **WebUI 课程搜索面板**：`/search_courses` + `/my_courses` + `/semesters` 三个端点 + 前端 Tab 切换 + 学期筛选 + 分页
+- **4 种非交互 captcha 自动识别**：图形图片（macOS Preview 弹窗）/ SMS / 邮件 / 隐形 reCAPTCHA
 - **多路/音画合并**：双轨 mkv（2 video + 3 audio track，ffmpeg `-c copy` 不重编码）
 - **两路视频画面+音频同步**：`-itsoffset -0.5` 提前 vga 对齐 main（sync-prober 实测）
 - **MLX Qwen3-ASR 字幕**（替代原 whisper）
-- **web 页面 SSO 登录按钮**：不需终端跑脚本，Tier3 自动有头
+- **web 页面 SSO 登录按钮**：不需终端跑脚本，Tier 3 自动启动有头浏览器
+- **鉴权 token 32 hex 修复**：延河 token 是 session id（32 hex）不是 JWT，修正后登录才真正可用
 
 可下载[延河课堂 (yanhekt.cn)](https://www.yanhekt.cn/recordCourse)中的课程视频。延河课堂是北京理工大学的在线课堂，提供了大量的课程视频，但是没有提供下载功能。本项目可以下载指定课程的摄像头和屏幕信号，包括无权限的课程。
 
@@ -38,9 +43,9 @@ uv run python webui_interface.py
 新版的延河课堂要求登录才能查看课程列表，故需要先获取登录后的身份认证码。**主推 `login_sso_unified.py`（3 层 fallback 全自动）**：
 - Tier 1: `login_sso_requests.py` 纯 requests（80% 情况，4-5s）
 - Tier 2: `headless_login.py` headless patchright（撞非交互 captcha，10-30s）
-- Tier 3: `auth_patchright.py` 有头 patchright（必须人交互时, 终端提示用户手跑）
+- Tier 3: `auth_patchright.py` 有头 patchright（必须人交互的 captcha，自动启动浏览器让用户完成，无需终端跑脚本）
 
-`auth_patchright.py` 仍保留作为最后兜底，**仅在 Tier 1+2 都跑不过时再使用**。
+`auth_patchright.py` 仍保留作为最后兜底，**仅在 Tier 1+2 都跑不过时由 Tier 3 自动调用**（用户无需手动跑该脚本）。
 
 > 运行 `main.py` / `gui.py` / `webui_interface.py` 时，若 `auth.txt` 不存在或失效，会自动调用 `login_sso_unified` 走上述 3 层 fallback，无需先手动跑登录脚本。
 
@@ -69,9 +74,9 @@ uv run python login_sso_unified.py
    → Patchright Python API + persistent profile 复用 TGC
    → 自动填账号密码 + 等 token 出现
 3. **Tier 3** `auth_patchright.py` 有头 patchright（必须人交互的 captcha）
-   → 脚本打印提示, 用户手跑有头浏览器完成
+   → 自动启动有头浏览器, 用户在弹窗中完成登录（含验证码）
 
-退出码：0 成功 / 1 requests 失败 / 2 headless 失败 / 3 必须人交互 / 4 密码错
+退出码：0 成功 / 1 requests 失败或拿不到有效 token / 2 headless + headful 都失败 / 4 密码错
 
 #### 独立入口（调试用）
 
@@ -85,9 +90,9 @@ uv run python auth_patchright.py       # 只跑 Tier 3 (有头, 浏览器弹窗)
 
 | SSO 触发条件 | 类型 | 处理方式 |
 |---|---|---|
-| `<p id="netEaseCaptchaId">` 非空 | 网易易盾滑块 | ❌ 报错降级到 `auth_patchright.py`（需拖动） |
-| `<p id="siteKey">` 非空 | reCAPTCHA / hCaptcha | ❌ 报错降级到 `auth_patchright.py`（需勾选） |
-| `<p id="recaptcha-invisible">true` | 隐形 reCAPTCHA v3 | ❌ 报错降级（行为指纹难模拟） |
+| `<p id="netEaseCaptchaId">` 非空 | 网易易盾滑块 | ❌ 报错降级到 Tier 3 自动有头（需拖动） |
+| `<p id="siteKey">` 非空 | reCAPTCHA / hCaptcha | ❌ 报错降级到 Tier 3 自动有头（需勾选） |
+| `<p id="recaptcha-invisible">true` | 隐形 reCAPTCHA v3 | ❌ 报错降级到 Tier 3（行为指纹难模拟） |
 | `<img id="captchaImg">` 或 `<p id="captcha-url">` | 文本型图片验证码 | ✅ 下载到 `/tmp/yhe_captcha.<ext>` + macOS `open` 弹 Preview + 终端 prompt 输入 |
 | `<p id="current-login-type">smsLogin` | 短信验证码 | ✅ 终端 prompt 输入 6 位 |
 | `<p id="current-login-type">mailLogin` | 邮件验证码 | ✅ 终端 prompt 输入 6 位 |
@@ -103,7 +108,7 @@ uv run python auth_patchright.py       # 只跑 Tier 3 (有头, 浏览器弹窗)
 [prompt] 请输入图中验证码: ▌
 ```
 
-降级路径：脚本报错时会自动提示 `uv run python auth_patchright.py`，用户手输完拿到的 token 仍写到 `auth.txt`，N100 scheduler 可继续用。
+降级路径：Tier 1/2 跑不过时由 `login_sso_unified` 自动调用 Tier 3 启动有头浏览器，用户在弹窗中完成登录，token 自动写入 `auth.txt`，N100 scheduler 可继续用。
 
 #### Fallback：Patchright 半自动（requests 跑不过时再用）
 
