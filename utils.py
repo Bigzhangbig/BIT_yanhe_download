@@ -194,19 +194,21 @@ def login_sso(student_id=None, password=None):
 
 def ensure_auth(courseID=None):
     """
-    确保认证有效。优先使用现有 auth.txt，失效时尝试 SSO 自动登录。
-    返回 True 表示认证成功。
+    确保认证有效。优先使用现有 auth.txt，失效时走 3 层 fallback SSO 登录
+    (requests -> headless -> headful 提示)。返回 True 表示认证成功。
+    login_sso_unified 内部成功时已写 auth.txt。
     """
     if read_auth() and test_auth(courseID=courseID or "0"):
         return True
-    # 尝试 SSO 登录
     try:
-        token = login_sso()
-        write_auth(token)
-        if courseID and not test_auth(courseID=courseID):
-            print("[SSO] 登录后课程验证失败，可能课程 ID 不正确")
-            return False
-        return True
+        from login_sso_unified import run_unified_login, EXIT_OK
+        rc = run_unified_login(quiet=False)
+        if rc == EXIT_OK and read_auth():
+            if courseID and not test_auth(courseID=courseID):
+                print("[SSO] 登录后课程验证失败，可能课程 ID 不正确")
+                return False
+            return True
+        return False
     except Exception as e:
         print(f"[SSO] 自动登录失败: {e}")
         return False

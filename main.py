@@ -18,7 +18,8 @@ def main():
     else:
         courseID = sys.argv[1]
 
-    if not utils.read_auth() or not utils.test_auth(courseID=courseID):
+    if not utils.ensure_auth(courseID=courseID):
+        # SSO 3 层 fallback 失败, fallback 到手动输入 token
         auth = input("。".join(utils.auth_prompt()))
         utils.write_auth(auth)
         if not utils.test_auth(courseID=courseID):

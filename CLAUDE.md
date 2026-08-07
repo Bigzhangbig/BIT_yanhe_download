@@ -46,7 +46,7 @@ Optional subtitle generation (after downloading videos):
 
 ### Authentication Flow
 
-1. **Token acquisition** — run `login_sso_unified.py` for 3-layer fallback (see Login Modules above):
+1. **Token acquisition** — `main.py` / `gui.py` / `webui_interface.py` 在 auth.txt 失效时自动调用 `login_sso_unified` 走 3 层 fallback (see Login Modules above). 也可单独跑 `uv run python login_sso_unified.py`:
    - **`login_sso_requests.py` (recommended)**: pure-requests CAS 3.0 login against `sso.bit.edu.cn`. Reads `STUDENT_ID` + `PASSWORD` from `.env`, no browser needed. N100 24/7 friendly.
    - **`auth_patchright.py` (fallback)**: Patchright-driven browser session. Use only when `login_sso_requests.py` can't bypass an SSO challenge (e.g. hard captcha). Browser profile is persistent at `~/Library/Application Support/BIT_yanhe_download/patchright-profile/`.
 2. The Bearer token is extracted (either from CAS callback URL `?token=` or from `localStorage.auth`), saved to `auth.txt` and injected into the `Authorization` header in `utils.py`.

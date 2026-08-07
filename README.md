@@ -25,6 +25,8 @@
 
 `auth_patchright.py` 仍保留作为最后兜底，**仅在 Tier 1+2 都跑不过时再使用**。
 
+> 运行 `main.py` / `gui.py` / `webui_interface.py` 时，若 `auth.txt` 不存在或失效，会自动调用 `login_sso_unified` 走上述 3 层 fallback，无需先手动跑登录脚本。
+
 #### 主推：3 层 fallback 全自动登录（推荐，N100 24/7 友好）
 
 在项目根目录的 `.env` 填入 `STUDENT_ID` + `PASSWORD`（参考 `.env.example`）：
