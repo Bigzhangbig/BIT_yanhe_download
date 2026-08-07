@@ -146,20 +146,6 @@ def _write_and_verify(token: str, auth_file: str, tier_label: str) -> int:
     return EXIT_OK
 
 
-def _print_headful_prompt():
-    print()
-    print("=" * 60)
-    print("[unified] Tier 3 兜底: 请手动跑有头浏览器完成登录")
-    print("=" * 60)
-    print("  uv run python auth_patchright.py")
-    print()
-    print("说明: 浏览器会弹窗, 自动读 .env 里的 STUDENT_ID + PASSWORD")
-    print("      (TODO 当前版本仍是手输, 升级后才会自动填)")
-    print("      登录成功后脚本自动从 localStorage 拿 token 写 auth.txt,")
-    print("      然后这个统一脚本也直接退 (auth.txt 已有 token).")
-    print()
-
-
 def main():
     ap = argparse.ArgumentParser(
         description="3 层 fallback SSO 登录 (requests -> headless -> headful)"
