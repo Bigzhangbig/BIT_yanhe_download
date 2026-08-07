@@ -2,7 +2,15 @@
 
 ## 介绍
 
-本项目可下载[延河课堂 (yanhekt.cn)](https://www.yanhekt.cn/recordCourse)中的课程视频。延河课堂是北京理工大学的在线课堂，提供了大量的课程视频，但是没有提供下载功能。本项目可以下载指定课程的摄像头和屏幕信号，包括无权限的课程。
+本项目 fork 自 [BITNP/BIT_yanhe_download](https://github.com/BITNP/BIT_yanhe_download)（upstream，最早由个人作者 [AuYang261](https://github.com/AuYang261/BIT_yanhe_download) 创建）。在原项目基础上，本 fork 增加了以下增强（upstream release 不包含这些功能，建议从源码运行本 fork）：
+
+- **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` headful_login（有头自动启动）
+- **多路/音画合并**：双轨 mkv（2 video + 3 audio track，ffmpeg `-c copy` 不重编码）
+- **两路视频画面+音频同步**：`-itsoffset -0.5` 提前 vga 对齐 main（sync-prober 实测）
+- **MLX Qwen3-ASR 字幕**（替代原 whisper）
+- **web 页面 SSO 登录按钮**：不需终端跑脚本，Tier3 自动有头
+
+可下载[延河课堂 (yanhekt.cn)](https://www.yanhekt.cn/recordCourse)中的课程视频。延河课堂是北京理工大学的在线课堂，提供了大量的课程视频，但是没有提供下载功能。本项目可以下载指定课程的摄像头和屏幕信号，包括无权限的课程。
 
 项目详细报告见[项目详解](./项目详解.md)，仅供参考。
 
@@ -10,7 +18,16 @@
 
 ## 使用：下载指定课程
 
-[点击此处下载](https://github.com/AuYang261/BIT_yanhe_download/releases/latest/download/release_downloader.zip)并解压。
+由于本 fork 没有预编译 release，且 upstream release 不含本 fork 的 SSO fallback、多轨 mkv、ASR 字幕等增强，建议从源码运行（macOS 步骤见下方"macOS 运行"小节；Windows 用户同样从源码运行）：
+
+```bash
+git clone https://github.com/Bigzhangbig/BIT_yanhe_download.git
+cd BIT_yanhe_download
+uv sync                 # 基础依赖（Windows 需提前安装 ffmpeg 并加入 PATH）
+uv run python webui_interface.py
+```
+
+如果不需要上述本 fork 增强、只需要基础下载功能，可以退而使用 [upstream 预编译 release（不含本 fork 增强）](https://github.com/AuYang261/BIT_yanhe_download/releases/latest/download/release_downloader.zip)——但该 Windows 二进制不包含 SSO 自动登录、多轨合并、MLX ASR 等本 fork 功能。
 
 在[延河课堂 (yanhekt.cn)](https://www.yanhekt.cn/recordCourse)中找到想下载的课程，以链接为 `https://www.yanhekt.cn/course/40524 `的课程为例，复制地址栏最后的五位编号 40524。注意是课程列表的链接（以 `yanhekt.cn/course/五位编号 `开头），不是视频界面的链接（以 `yanhekt.cn/session/六位编号`开头）。
 
@@ -234,13 +251,20 @@ uv run python gui.py
 
 该功能更适合在 Apple Silicon Mac 上运行，依赖见[下文](#依赖)。
 
-下载[字幕生成程序 gen_caption](https://github.com/AuYang261/BIT_yanhe_download/releases/tag/v2.0)，由于程序比较大，采用了分卷压缩发布。全部下载并解压，得到一个 `gen_caption.exe `可执行文件，保存在上述 `release_downloader.zip `解压的目录中，和保存视频的目录 `output/`同级，如下所示：
+下载[字幕生成程序 gen_caption](https://github.com/AuYang261/BIT_yanhe_download/releases/tag/v2.0)（upstream release，使用原版 whisper 字幕模型，**不含本 fork 的 MLX Qwen3-ASR 增强**），由于程序比较大，采用了分卷压缩发布。全部下载并解压，得到一个 `gen_caption.exe `可执行文件，保存在上述 `release_downloader.zip `解压的目录中，和保存视频的目录 `output/`同级，如下所示：
 
 ![image-20240409105228362](md/README/image-20240409105228362.png)
 
 下载完视频后，双击运行 `gen_caption.exe`（文件较大，需要等一会），输入数字选择视频，回车。再输入数字选择 Qwen3-ASR 模型，默认使用 `mlx-community/Qwen3-ASR-1.7B-bf16`。第一次使用会自动下载模型，请耐心等待。如下所示：
 
 ![image-20240409131033038](md/README/image-20240409131033038.png)
+
+> 本 fork 的字幕功能基于 MLX Qwen3-ASR（更准确、更快），仅在 Apple Silicon Mac 上从源码运行时可用：
+>
+> ```bash
+> uv sync --extra asr
+> uv run python gen_caption.py <下载的视频或音频文件路径>
+> ```
 
 等待程序运行完成，生成的字幕文件为 `.srt`格式，与视频文件在同级目录下，用支持字幕的播放器（如 potplayer）打开视频即可看到带字幕的视频。
 
