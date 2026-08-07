@@ -82,10 +82,33 @@ def execute_one_download_task_worker(task_dict, father_queue):
     global current_task_uuid, g_father_queue
     print(f"downloading task {task_dict}")
     current_task_uuid = task_dict["uuid"]
-    url = task_dict["url"]
     output = task_dict["output"]
     name = task_dict["name"]
     g_father_queue = father_queue
+    if task_dict.get("download_type") == "3":
+        # 双轨合并: main + vga + 蓝牙 -> mkv
+        os.makedirs(output, exist_ok=True)
+        print("Downloading camera (main)...")
+        m3u8dl.M3u8Download(task_dict["main_url"], output, name + "-main", progress_callback=executor_progress_callback)
+        print("Downloading screen (vga)...")
+        m3u8dl.M3u8Download(task_dict["vga_url"], output, name + "-vga", progress_callback=executor_progress_callback)
+        audio_aac = None
+        audio_url = task_dict.get("audio_url", "")
+        if audio_url:
+            print("Downloading bluetooth audio...")
+            utils.download_audio(audio_url, output, name + "-main")
+            audio_aac = os.path.join(output, name + "-main.aac")
+        mkv_path = os.path.join(output, name + ".mkv")
+        print("Merging to mkv...")
+        m3u8dl.merge_to_mkv(
+            os.path.join(output, name + "-main.mp4"),
+            os.path.join(output, name + "-vga.mp4"),
+            audio_aac,
+            mkv_path,
+        )
+        print(f"Merged: {mkv_path}")
+        return
+    url = task_dict["url"]
     m3u8dl.M3u8Download(url, output, name, progress_callback=executor_progress_callback)
     if task_dict["download_audio"]:
         audio_url = task_dict["audio_url"]
@@ -202,7 +225,13 @@ def new_task():
         }
 
         task_status["audio_url"] = utils.get_audio_url(c["video_ids"][0])
-        if download_version == "2":
+        if download_version == "3":
+            # 双轨合并: main + vga + 蓝牙 -> mkv
+            task_status["main_url"] = c["videos"][0]["main"]
+            task_status["vga_url"] = c["videos"][0]["vga"]
+            task_status["url"] = c["videos"][0]["main"]
+            task_status["output"] = "output/" + courseName + "-merged"
+        elif download_version == "2":
             print("Downloading screen...")
             task_status["url"] = c["videos"][0]["vga"]
             task_status["output"] = "output/" + courseName + "-screen"

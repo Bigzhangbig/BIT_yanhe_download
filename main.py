@@ -36,18 +36,44 @@ def main():
         "[" + input("选 择 课 程 编 号 (用 英 文 逗 号 ','分 隔, 例 如: 0,2,4): ") + "]"
     )
     vga = input(
-        "选 择 下 载 摄 像 头 (1) 还 是 电 脑 屏 幕 (2)?(输 入 1 或 2, 默 认 摄 像 头):"
+        "选 择 下 载: 1.摄 像 头 2.电 脑 屏 幕 3.双 轨 合 并(摄 像 头+屏 幕+蓝 牙)?(输 入 1/2/3, 默 认 1):"
     )
-    audio = input(
-        "是 否 下 载 教 室 蓝 牙 话 筒 的 音 频 ?若 教 师 未 使 用 蓝 牙 话 筒 则 该 音 频 无 声 音 (输 入 1不 下 载, 默 认 下 载):"
-    )
+    audio = ""
+    if vga != "3":
+        audio = input(
+            "是 否 下 载 教 室 蓝 牙 话 筒 的 音 频 ?若 教 师 未 使 用 蓝 牙 话 筒 则 该 音 频 无 声 音 (输 入 1不 下 载, 默 认 下 载):"
+        )
     if not os.path.exists("output/"):
         os.mkdir("output/")
     for i in index:
         c = videoList[i]
         name = courseName + "-" + professor + "-" + c["title"]
         print(name)
-        if vga == "2":
+        if vga == "3":
+            # 双轨合并: 下载 main + vga + 蓝牙 -> mkv
+            path = f"output/{courseName}-merged"
+            os.makedirs(path, exist_ok=True)
+            print("Downloading camera (main)...")
+            m3u8dl.M3u8Download(c["videos"][0]["main"], path, name + "-main")
+            print("Downloading screen (vga)...")
+            m3u8dl.M3u8Download(c["videos"][0]["vga"], path, name + "-vga")
+            audio_aac = None
+            if c["video_ids"]:
+                audio_url = utils.get_audio_url(c["video_ids"][0])
+                if audio_url:
+                    print("Downloading bluetooth audio...")
+                    utils.download_audio(audio_url, path, name + "-main")
+                    audio_aac = os.path.join(path, name + "-main.aac")
+            mkv_path = os.path.join(path, name + ".mkv")
+            print("Merging to mkv...")
+            m3u8dl.merge_to_mkv(
+                os.path.join(path, name + "-main.mp4"),
+                os.path.join(path, name + "-vga.mp4"),
+                audio_aac,
+                mkv_path,
+            )
+            print(f"Merged: {mkv_path}")
+        elif vga == "2":
             path = f"output/{courseName}-screen"
             print("Downloading screen...")
             m3u8dl.M3u8Download(c["videos"][0]["vga"], path, name)
@@ -55,7 +81,7 @@ def main():
             path = f"output/{courseName}-video"
             print("Downloading video...")
             m3u8dl.M3u8Download(c["videos"][0]["main"], path, name)
-        if audio == "" and c["video_ids"]:
+        if vga != "3" and audio == "" and c["video_ids"]:
             audio_url = utils.get_audio_url(c["video_ids"][0])
             if audio_url:
                 print("Downloading audio...")

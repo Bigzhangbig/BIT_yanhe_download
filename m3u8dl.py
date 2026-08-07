@@ -284,3 +284,50 @@ class M3u8Download:
             os.remove(os.path.join(self._file_path, item))
         os.removedirs(self._file_path)
         os.remove(self._file_path + ".m3u8")
+
+
+def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv, keep_intermediate=False):
+    """合并两路视频+蓝牙音频成双轨 mkv (-c copy, 不重编码)。
+
+    mkv 含: video track 1(摄像头) + video track 2(屏幕) + audio track 1(蓝牙,
+    默认音轨) + audio track 2(摄像头内嵌) + audio track 3(屏幕内嵌)。
+    audio_aac=None 时退化为 2 video + 2 audio(各内嵌)。
+    """
+    cmd = [
+        utils.get_ffmpeg_command(),
+        "-i", main_mp4,
+        "-i", vga_mp4,
+    ]
+    if audio_aac:
+        cmd += ["-i", audio_aac]
+    # map: video 先, 蓝牙 audio 作默认音轨(track 0), 然后内嵌 audio
+    cmd += ["-map", "0:v", "-map", "1:v"]
+    if audio_aac:
+        cmd += ["-map", "2:a", "-map", "0:a", "-map", "1:a"]
+    else:
+        cmd += ["-map", "0:a", "-map", "1:a"]
+    cmd += [
+        "-c", "copy",
+        "-metadata:s:v:0", "title=摄像头",
+        "-metadata:s:v:1", "title=屏幕",
+    ]
+    if audio_aac:
+        cmd += [
+            "-metadata:s:a:0", "title=蓝牙话筒",
+            "-metadata:s:a:1", "title=摄像头内嵌",
+            "-metadata:s:a:2", "title=屏幕内嵌",
+        ]
+    else:
+        cmd += [
+            "-metadata:s:a:0", "title=摄像头内嵌",
+            "-metadata:s:a:1", "title=屏幕内嵌",
+        ]
+    cmd.append(output_mkv)
+    run(cmd, check=True)
+    # 清理中间文件
+    if not keep_intermediate:
+        for f in (main_mp4, vga_mp4):
+            if os.path.exists(f):
+                os.remove(f)
+        if audio_aac and os.path.exists(audio_aac):
+            os.remove(audio_aac)
