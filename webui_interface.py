@@ -105,6 +105,7 @@ def execute_one_download_task_worker(task_dict, father_queue):
             os.path.join(output, name + "-vga.mp4"),
             audio_aac,
             mkv_path,
+            vga_offset=-0.5,
         )
         print(f"Merged: {mkv_path}")
         return

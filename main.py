@@ -71,6 +71,7 @@ def main():
                 os.path.join(path, name + "-vga.mp4"),
                 audio_aac,
                 mkv_path,
+                vga_offset=-0.5,
             )
             print(f"Merged: {mkv_path}")
         elif vga == "2":

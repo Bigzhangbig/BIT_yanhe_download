@@ -286,18 +286,22 @@ class M3u8Download:
         os.remove(self._file_path + ".m3u8")
 
 
-def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv, keep_intermediate=False):
+def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv, keep_intermediate=False, vga_offset=0.0):
     """合并两路视频+蓝牙音频成双轨 mkv (-c copy, 不重编码)。
 
     mkv 含: video track 1(摄像头) + video track 2(屏幕) + audio track 1(蓝牙,
     默认音轨) + audio track 2(摄像头内嵌) + audio track 3(屏幕内嵌)。
     audio_aac=None 时退化为 2 video + 2 audio(各内嵌)。
+    vga_offset: vga 视频相对 main 的时间偏移(秒), 用 -itsoffset 对齐两路画面。
+    正值延后 vga, 负值提前 vga。0=不对齐。
     """
     cmd = [
         utils.get_ffmpeg_command(),
         "-i", main_mp4,
-        "-i", vga_mp4,
     ]
+    if vga_offset:
+        cmd += ["-itsoffset", str(vga_offset)]
+    cmd += ["-i", vga_mp4]
     if audio_aac:
         cmd += ["-i", audio_aac]
     # map: video 先, 蓝牙 audio 作默认音轨(track 0), 然后内嵌 audio
