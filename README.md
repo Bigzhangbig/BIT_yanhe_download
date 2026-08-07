@@ -2,7 +2,7 @@
 
 ## 介绍
 
-本项目 fork 自 [BITNP/BIT_yanhe_download](https://github.com/BITNP/BIT_yanhe_download)（upstream，最早由个人作者 [AuYang261](https://github.com/AuYang261/BIT_yanhe_download) 创建）。在原项目基础上，本 fork 增加了以下增强（upstream release 不包含这些功能，建议从源码运行本 fork）：
+本项目 fork 自 [BITNP/BIT_yanhe_download](https://github.com/BITNP/BIT_yanhe_download)（upstream，最早由个人作者 [AuYang261](https://github.com/AuYang261/BIT_yanhe_download) 创建）。**本 fork 系 vibe coding 产物，代码与文档仅供参考，使用前请自行验证。** 在原项目基础上，本 fork 增加了以下增强（upstream release 不包含这些功能，建议从源码运行本 fork）：
 
 - **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` `headful_login`（自动启动有头浏览器完成剩余登录）
 - **`ensure_auth()` 自动 SSO**：所有下载入口（CLI / TUI / WebUI）`auth.txt` 失效时自动走 3 层 fallback，用户零操作
