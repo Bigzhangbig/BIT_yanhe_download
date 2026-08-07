@@ -1,13 +1,10 @@
 import os
-import re
 import shutil
 import sys
 import time
-import urllib.parse
 from hashlib import md5
 
 import requests
-from dotenv import load_dotenv
 
 # 在延河课堂网站的main.js中4937号的O[N(149, 270, 240, 274)]["k"]()函数的返回值
 magic = "1138b69dfef641d9d7ba49137d2d4875"
@@ -93,103 +90,6 @@ def write_auth(auth):
     headers["Authorization"] = "Bearer " + auth
     with open("auth.txt", "w") as f:
         f.write(auth)
-
-
-def login_sso(student_id=None, password=None):
-    """
-    通过北京理工大学统一身份认证（SSO）登录延河课堂。
-    优先使用传入参数，否则从 .env 文件中读取 STUDENT_ID 和 PASSWORD。
-    返回获取到的 Bearer Token。
-    """
-    load_dotenv()
-    student_id = student_id or os.getenv("STUDENT_ID", "")
-    password = password or os.getenv("PASSWORD", "")
-    if not student_id or not password:
-        raise ValueError(
-            "未提供学号或密码。请在 .env 文件中设置 STUDENT_ID 和 PASSWORD，"
-            "或在调用时传入参数。"
-        )
-
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": headers["User-Agent"],
-        "Origin": "https://www.yanhekt.cn",
-        "Referer": "https://www.yanhekt.cn/",
-    })
-
-    SSO_API = "https://sso.bit.edu.cn/cas/v1/tickets"
-    CALLBACK_URL = "https://cbiz.yanhekt.cn/v1/cas/callback"
-
-    # 第 1 步：获取 TGT
-    print("[SSO] 正在获取 TGT...")
-    r = session.post(
-        SSO_API,
-        data={"username": student_id, "password": password},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    if r.status_code == 401:
-        raise ValueError("[SSO] 账号或密码错误，请检查 .env 中的 STUDENT_ID 和 PASSWORD。")
-    if r.status_code != 201:
-        raise RuntimeError(f"[SSO] TGT 获取失败: HTTP {r.status_code}")
-
-    tgt_url = r.headers.get("Location")
-    if not tgt_url:
-        match = re.search(r'action="([^"]+)"', r.text)
-        if match:
-            tgt_url = match.group(1)
-    if not tgt_url:
-        raise RuntimeError("[SSO] 无法解析 TGT URL")
-    print("[SSO] TGT 获取成功")
-
-    # 第 2 步：获取 ST (Service Ticket)
-    print("[SSO] 正在获取 Service Ticket...")
-    r_st = session.post(
-        tgt_url,
-        data={"service": CALLBACK_URL},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    if r_st.status_code != 200:
-        raise RuntimeError(f"[SSO] ST 获取失败: HTTP {r_st.status_code}")
-    ticket = r_st.text.strip()
-    if not ticket:
-        raise RuntimeError("[SSO] Service Ticket 为空")
-    print("[SSO] Service Ticket 获取成功")
-
-    # 第 3 步：验证 Ticket，获取 Token
-    print("[SSO] 正在验证 Ticket 并获取 Token...")
-    separator = "&" if "?" in CALLBACK_URL else "?"
-    callback_with_ticket = f"{CALLBACK_URL}{separator}ticket={ticket}"
-    r_callback = session.get(callback_with_ticket, allow_redirects=False)
-
-    location = r_callback.headers.get("Location", "")
-    if not location:
-        raise RuntimeError("[SSO] 未获取到重定向地址")
-
-    token = ""
-    parsed = urllib.parse.urlparse(location)
-    qs = urllib.parse.parse_qs(parsed.query)
-    token = qs.get("token", [""])[0]
-
-    # 备用解析
-    if not token and "token=" in location:
-        token = location.split("token=")[1].split("&")[0]  # gitleaks:ignore
-
-    # 如果第一次重定向没有 token，继续跟随重定向链
-    if not token:
-        r2 = session.get(location, allow_redirects=False)
-        location2 = r2.headers.get("Location", "")
-        if location2:
-            parsed2 = urllib.parse.urlparse(location2)
-            qs2 = urllib.parse.parse_qs(parsed2.query)
-            token = qs2.get("token", [""])[0]
-            if not token and "token=" in location2:
-                token = location2.split("token=")[1].split("&")[0]  # gitleaks:ignore
-
-    if not token:
-        raise RuntimeError("[SSO] Token 解析失败，未能从重定向中提取到 token")
-
-    print("[SSO] 登录成功，Token 已获取")
-    return token
 
 
 def ensure_auth(courseID=None):

@@ -237,19 +237,31 @@ def kill_task():
 
 @app.route("/sso_login", methods=["POST"])
 def sso_login():
-    """通过 BIT 统一身份认证登录"""
+    """通过 BIT SSO 登录 (login_sso_requests, Tier1 纯 requests, 不阻塞)。
+    撞到需要人交互的验证码时返回 402 提示终端跑 login_sso_unified.py。
+    """
     data = request.json or {}
     student_id = data.get("student_id", "")
     password = data.get("password", "")
     course_id = data.get("course_id", "")
+    if not student_id or not password:
+        load_dotenv()
+        student_id = os.getenv("STUDENT_ID", "")
+        password = os.getenv("PASSWORD", "")
+    if not student_id or not password:
+        return jsonify({"code": 400, "msg": "未提供学号密码, 且 .env 未配置 STUDENT_ID/PASSWORD"})
     try:
-        token = utils.login_sso(student_id=student_id, password=password)
+        from login_sso_requests import login_sso_requests
+        token = login_sso_requests(student_id, password, verbose=False)
         utils.write_auth(token)
         if course_id and not utils.test_auth(courseID=course_id):
             return jsonify({"code": 403, "msg": "SSO 登录成功，但课程验证失败"})
         return jsonify({"code": 0, "msg": "登录成功"})
     except Exception as e:
-        return jsonify({"code": 401, "msg": str(e)})
+        msg = str(e)
+        if "captcha" in msg.lower() or "交互" in msg or "验证码" in msg:
+            return jsonify({"code": 402, "msg": f"撞到需要人交互的验证码, 请在终端跑 uv run python login_sso_unified.py: {msg}"})
+        return jsonify({"code": 401, "msg": msg})
 
 
 @app.route("/sso_config")

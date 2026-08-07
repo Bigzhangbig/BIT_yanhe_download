@@ -334,3 +334,30 @@ function selectAll(select) {
     list.childNodes[i].className = select ? "selected" : "";
   }
 }
+
+async function ssoLogin() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = "登录中...";
+  try {
+    const res = await fetch("/sso_login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ course_id: document.getElementById("courseId").value }),
+    }).then((r) => r.json());
+    if (res.code === 0) {
+      alert("SSO 登录成功 (auth.txt 已更新)");
+      document.getElementById("auth").value = "";
+      document.getElementById("auth").placeholder = "已通过 SSO 登录";
+    } else if (res.code === 402) {
+      alert(res.msg);
+    } else {
+      alert("SSO 登录失败: " + res.msg);
+    }
+  } catch (e) {
+    alert("SSO 登录请求失败: " + e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "SSO 登录";
+  }
+}
