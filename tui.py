@@ -42,28 +42,44 @@ class ChooseCourseScreen(ModalScreen[str]):
 
     BINDINGS = [
         Binding("escape", "cancel", "取消"),
-        Binding("up", "focus_previous", "上一个"),
-        Binding("down", "focus_next", "下一个"),
-        Binding("left", "focus_previous", "上一个"),
-        Binding("right", "focus_next", "下一个"),
+        Binding("enter", "select", "确认"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Static("BIT 延河课堂 — 选择获取课程的方式", id="title")
         yield Static("↑↓ 移动 · Enter 确认 · Esc 取消", id="subtitle")
         with Vertical(id="stage"):
-            with Horizontal(id="button-row"):
-                yield Button("输入课程号", id="by-id", variant="primary")
-                yield Button("搜索课程", id="by-search")
-                yield Button("我的课程", id="by-mine")
+            ol = OptionList(id="course-actions")
+            ol.add_option(Option("输入课程号", id="by-id"))
+            ol.add_option(Option("搜索课程", id="by-search"))
+            ol.add_option(Option("我的课程", id="by-mine"))
+            yield ol
         yield Static("Textual TUI · BIT 延河课堂", id="status")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "by-id":
+    def on_mount(self) -> None:
+        self.query_one("#course-actions", OptionList).focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        # OptionList 双击/Enter 都触发，这里统一处理
+        self._dispatch(event.option.id)
+
+    def action_select(self) -> None:
+        ol = self.query_one("#course-actions", OptionList)
+        if ol.highlighted is not None:
+            opt = ol.get_option_at_index(ol.highlighted)
+            self._dispatch(opt.id)
+
+    def _dispatch(self, option_id: str | None) -> None:
+        if option_id == "by-id":
             self.app.push_screen(InputCourseIdScreen(), self._on_result)
-        elif event.button.id == "by-search":
+        elif option_id == "by-search":
             self.app.push_screen(SearchCourseScreen(), self._on_result)
-        elif event.button.id == "by-mine":
+        elif option_id == "by-mine":
+            if not utils.read_auth():
+                self.app.push_screen(
+                    MessageScreen("请先登录 (输入课程号走 SSO 后再来)", back=True)
+                )
+                return
             self._fetch_and_pick("我的课程", lambda: utils.get_my_courses(page=1, page_size=16))
 
     def _fetch_and_pick(self, label: str, fetch):
@@ -127,7 +143,7 @@ class SearchCourseScreen(ModalScreen[str]):
         yield Static("搜索课程", id="title")
         yield Static("关键词 (可空) + 学期 (可空=不过滤)", id="subtitle")
         with Vertical(id="stage"):
-            yield Label("搜索关键词：")
+            yield Label("搜索关键词 (中文可用 ⌘V / Ctrl+Shift+V 粘贴):")
             yield Input(placeholder="例如 数据结构 (回车到下一步)", id="keyword")
             yield Label("学期 (空格多选, 全不选=不筛选)：")
             yield SelectionList(id="semesters")
@@ -219,10 +235,7 @@ class ChooseVideosScreen(ModalScreen[list[int] | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "取消"),
-        Binding("up", "focus_previous", "上一个"),
-        Binding("down", "focus_next", "下一个"),
-        Binding("left", "focus_previous", "上一个"),
-        Binding("right", "focus_next", "下一个"),
+        Binding("enter", "select", "确认"),
     ]
 
     def __init__(self, videoList: list, courseName: str) -> None:
@@ -234,22 +247,35 @@ class ChooseVideosScreen(ModalScreen[list[int] | None]):
         yield Static(f"课程：{self._courseName} ({len(self._videoList)} 节)", id="title")
         yield Static("选择节数范围", id="subtitle")
         with Vertical(id="stage"):
-            with Horizontal(id="button-row"):
-                yield Button("单节", id="single", variant="primary")
-                yield Button("多节", id="multi")
-                yield Button("全选", id="all")
+            ol = OptionList(id="video-actions")
+            ol.add_option(Option("单节", id="single"))
+            ol.add_option(Option("多节", id="multi"))
+            ol.add_option(Option("全选", id="all"))
+            yield ol
         yield Static("Esc 取消", id="status")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "single":
+    def on_mount(self) -> None:
+        self.query_one("#video-actions", OptionList).focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self._dispatch(event.option.id)
+
+    def action_select(self) -> None:
+        ol = self.query_one("#video-actions", OptionList)
+        if ol.highlighted is not None:
+            opt = ol.get_option_at_index(ol.highlighted)
+            self._dispatch(opt.id)
+
+    def _dispatch(self, option_id: str | None) -> None:
+        if option_id == "single":
             self.app.push_screen(
                 SingleVideoScreen(self._videoList, self._courseName), self._on_pick
             )
-        elif event.button.id == "multi":
+        elif option_id == "multi":
             self.app.push_screen(
                 MultiVideoScreen(self._videoList, self._courseName), self._on_pick
             )
-        elif event.button.id == "all":
+        elif option_id == "all":
             self.dismiss(list(range(len(self._videoList))))
 
     def _on_pick(self, result: list[int] | None) -> None:
@@ -471,6 +497,12 @@ class CourseApp(App):
         self.result: tuple | None = None
 
     def on_mount(self) -> None:
+        # 提前读 auth.txt 设置 Bearer — 这样阶段1的"我的课程"按钮(走私有 API
+        # /v2/course/private/list)能直接用现有 token 拿到 16 门课;
+        # 搜索公开 API 无需 token, 也不影响。token 过期会在 _on_course_id ->
+        # ensure_auth 走 SSO 重试; 若"我的课程"点了发现 token 失效, _fetch_and_pick
+        # 的 try/except 会显示服务端错误。
+        utils.read_auth()
         self.push_screen(ChooseCourseScreen(), self._on_course_id)
 
     def _on_course_id(self, courseID: str | None) -> None:
