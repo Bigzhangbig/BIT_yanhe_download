@@ -112,9 +112,9 @@ upstream 把"原始交互方式"（main.py，stdin）和"命令行 GUI"（gui.py
 
 | 项 | 关键文件 / 位置 |
 | --- | --- |
-| 统一入口 | `main.py` `main()` 按 `sys.stdout.isatty()` 分流 tty → `main_tui()`（curses TUI）/ 非 tty → `main_plain()`（stdin 文本交互，可传 `sys.argv[1]` 作 courseID）；curses 初始化失败时也降级 stdin |
+| 统一入口 | `main.py` `main()` 按 `sys.stdout.isatty()` 分流 tty → `main_tui()`（Textual TUI）/ 非 tty → `main_plain()`（stdin 文本交互，可传 `sys.argv[1]` 作 courseID）；Textual 渲染异常时也降级 stdin |
 | 共享下载 | `main.py` `_do_download` / `_download_one`，按 `_TRACKS` 自由组合走双轨 mkv（vga_offset=-0.5）或单路 mp4 + 蓝牙 `.aac` + `utils.ensure_auth` SSO 3层 fallback |
-| TUI 抽离 | `tui.py`：curses 交互层（`Row` / `draw_line` / `draw_menu` / `draw_multi_select` / `multi_select` / `single_select` / `_pick_course` / `_ensure_at_least_one`） |
+| TUI 抽离 | `tui.py`：Textual `CourseApp` + 10 个 `ModalScreen` 子类（详见 I 节） |
 | 三阶段 TUI 流程 | `tui.config_tui`：阶段 1 `_select_course_id`（输入课程号 / 关键词搜索含学期筛选 / 我的课程）→ 阶段 2 `_select_videos`（单节 / 多节 ≥1 / 全选）→ 阶段 3 `_select_tracks`（视频轨 ≥1 + 音频轨可空） |
 | 下载自由组合 | 阶段 3 视频 multi_select（摄像头 main / 屏幕 vga，≥1）+ 音频 multi_select（蓝牙话筒 / 摄像头内嵌 / 屏幕内嵌，可空），组合成 5 个 bool 传给 `_download_one` |
 | 学期筛选 | `utils.search_courses(semesters=...)` 支持多选学期参数（`tests/test_refactor.py::SearchCoursesSemestersTest` 验证 `semesters[]=` 列表展开） |
@@ -122,6 +122,31 @@ upstream 把"原始交互方式"（main.py，stdin）和"命令行 GUI"（gui.py
 | 回归测试 | `tests/test_refactor.py`（18 个 unittest case 覆盖 `merge_to_mkv` 5 种音频组合 / `_download_one` 5 种视频组合 / `search_courses` 学期参数 / 主流程模块 import） |
 | 兼容保留 | `gui.py` 5 行重定向 `from main import main`，旧脚本/旧文档引用继续可用 |
 | 反模式清理 | 移除 `gui.py` 旧有 global 跨函数传参（被模块级 `_VIDEO_LIST` / `_COURSE_NAME` / `_PROFESSOR` / `_SELECTED_VIDEOS` / `_TRACKS` 替代，单进程单用户 CLI 够用） |
+
+### I. Textual 框架重构 TUI（6 项）
+
+H 节的初版 TUI 用 Python 标准库 curses 手写：自管 `Row` / `draw_line` / `draw_menu` / `draw_multi_select` 等渲染工具，靠 ANSI 转义 + 键盘 raw 模式实现。本节用 [Textual](https://textual.textualize.io/) 8.x 框架替换手写 curses，对外接口不变（`app.result` 仍返回 `(videoList, courseName, professor, selected_videos, tracks_dict)`），`main.main_tui()` 无需感知 TUI 实现细节。
+
+| 项 | 关键文件 / 位置 |
+| --- | --- |
+| TUI 框架 | `tui.py`：`CourseApp(App)` 主类 + 10 个 `ModalScreen` 子类（`ChooseCourseScreen` / `InputCourseIdScreen` / `SearchCourseScreen` / `PickOneScreen` / `ChooseVideosScreen` / `SingleVideoScreen` / `MultiVideoScreen` / `ChooseTracksScreen` / `AuthTokenScreen` / `MessageScreen`），每阶段一个屏 |
+| 控件 | `SelectionList`（多选：视频轨 / 音频轨 / 学期筛选 / 多节视频）、`OptionList`（单选：搜索结果课程 / 单节视频）、`Input`（文本输入：课程号 / 搜索关键词 / token）、`Button`（动作按钮）、`Label` / `Static`（标题 / 状态栏） |
+| CSS 样式 | `tui.tcss`（93 行）：配色变量、圆角边框 `$primary`、状态栏 `dock: bottom`、按钮居中、警告色 `#msg`；由 `CourseApp.CSS_PATH` 加载 |
+| PyInstaller hook | `hooks/hook-textual.py`：`collect_submodules('textual'/'textual.widgets'/'rich'/'rich.jupyter')` + `collect_data_files('textual'/'textual.widgets')` + 项目自带 `tui.tcss` 数据文件；打包时需 `--additional-hooks-dir hooks` |
+| 依赖 | `pyproject.toml` 删 `windows-curses`（Textual 不依赖 curses），加 `textual>=8.2.8`；`uv sync` 自动装 |
+| Frozen 兼容 | `tui.py` 中 `_CSS_PATH` 用 `sys._MEIPASS` 解析（`getattr(sys, 'frozen', False)` 分支），PyInstaller 打包后 CSS 自动定位 |
+
+**对外接口**（与 H 节兼容）：
+
+```python
+import tui
+app = tui.CourseApp()
+app.run()
+# 成功：app.result = (videoList, courseName, professor, selected_videos, tracks_dict)
+# 取消：app.result is None
+```
+
+**遗留风险**：Textual 在 Windows 控制台的渲染有已知问题（[Textual issue #5162](https://github.com/Textualize/textual/issues/5162)），macOS / Linux 已通过 Pilot 模拟 + PyInstaller 抓屏验证（终端内 CSS 边框 / 按钮 / 状态栏全部应用），Windows 打包后渲染待 Windows 环境用户验证。
 
 ## 用法
 

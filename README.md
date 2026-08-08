@@ -6,8 +6,9 @@
 
 - **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` `headful_login`（自动启动有头浏览器完成剩余登录）
 - **`ensure_auth()` 自动 SSO**：所有下载入口（CLI / TUI / WebUI）`auth.txt` 失效时自动走 3 层 fallback，用户零操作
-- **统一 CLI 入口 `main.py`**：curses TUI（tty）+ stdin 文本交互（非 tty 自动降级），同一脚本覆盖交互与批处理；`gui.py` 改为 5 行薄重定向保留兼容
+- **统一 CLI 入口 `main.py`**：tty 下 Textual 框架 TUI，非 tty（管道/CI）自动降级 stdin 文本交互，同一脚本覆盖交互与批处理；`gui.py` 改为 5 行薄重定向保留兼容
 - **三阶段 TUI 流程**：`main.py` 启动后先选课程获取方式（输入课程号 / 关键词搜索（支持学期筛选）/ 我的课程）→ 再选节数（单节 / 多节 / 全选）→ 最后选下载轨道（2 路视频 + 3 路音频自由组合：摄像头 / 屏幕 / 蓝牙话筒 / 摄像头内嵌 / 屏幕内嵌）
+- **Textual 框架 TUI**：替换手写 curses，用 [Textual](https://textual.textualize.io/) 8.x 实现：`CourseApp` + 10 个 `ModalScreen` 子类分阶段，`SelectionList` / `OptionList` / `Input` 控件 + `tui.tcss` CSS 样式（圆角边框、配色、状态栏），界面更美观、跨终端兼容性更好；对外接口 `app.result` 仍返回 `(videoList, courseName, professor, selected_videos, tracks_dict)`，与 `_do_download` 兼容
 - **跨平台支持（Windows / macOS / Linux）**：`get_ffmpeg_command()` 智能 ffmpeg 查找（env / cwd / homebrew / /usr/bin / /snap/bin / PATH 优先级）、PyInstaller frozen 路径、patchright 三平台 profile 路径、captcha 图片查看器跨平台调用（macOS `open` / Linux `xdg-open` / Windows `os.startfile`）、临时文件统一走 `tempfile.gettempdir()`（Linux/macOS 是 `/tmp`，Windows 是 `%TEMP%`）
 - **WebUI 课程搜索面板**：`/search_courses` + `/my_courses` + `/semesters` 三个端点 + 前端 Tab 切换 + 学期筛选 + 分页
 - **4 种非交互 captcha 自动识别**：图形图片（macOS Preview 弹窗）/ SMS / 邮件 / 隐形 reCAPTCHA
@@ -183,14 +184,14 @@ uv sync
 # 网页 GUI
 uv run python webui_interface.py
 
-# 统一 CLI（主推）：tty 下 curses TUI，非 tty（如管道/CI）自动降级 stdin
+# 统一 CLI（主推）：tty 下 Textual 框架 TUI，非 tty（如管道/CI）自动降级 stdin
 uv run python main.py 40524
 # 不传 courseID 也会在 TUI/stdin 里提示输入
 ```
 
 `uv run python gui.py` 仍可用，已重定向到 `main.py`（兼容旧入口，行为一致）。
 
-`main.py` 启动 curses TUI 后会按顺序走三个阶段：
+`main.py` 启动 Textual TUI 后会按顺序走三个阶段：
 
 1. **选择课程**：三选一
    - 输入课程号（`yanhekt.cn/course/` 后的 5 位 ID）
@@ -262,14 +263,14 @@ uv sync
 # 网页 GUI
 uv run python webui_interface.py
 
-# 统一 CLI（主推）：tty 下 curses TUI，非 tty（如管道/CI）自动降级 stdin
+# 统一 CLI（主推）：tty 下 Textual 框架 TUI，非 tty（如管道/CI）自动降级 stdin
 uv run python main.py 40524
 # 不传 courseID 也会在 TUI/stdin 里提示输入
 ```
 
 `uv run python gui.py` 仍可用，已重定向到 `main.py`（兼容旧入口，行为一致）。
 
-`main.py` 启动 curses TUI 后会按顺序走三个阶段：
+`main.py` 启动 Textual TUI 后会按顺序走三个阶段：
 
 1. **选择课程**：三选一
    - 输入课程号（`yanhekt.cn/course/` 后的 5 位 ID）
@@ -288,7 +289,7 @@ uv run python main.py 40524
 FFMPEG_BINARY=/path/to/ffmpeg uv run python webui_interface.py
 ```
 
-`main.py` 启动 curses TUI 需要终端支持 curses。绝大多数 Linux 发行版自带，若运行时报 `_curses` 找不到，安装 `libncurses5-dev` / `libncursesw5-dev` 即可（各发行版官方源均提供）。当终端不是 tty（如 systemd / nohup / CI 重定向）时，main.py 会自动降级到 stdin 文本交互，不会因 curses 失败而退出。
+`main.py` 启动 Textual TUI 不依赖系统 curses 库，依赖通过 `uv sync` 自动装（`textual>=8.2.8`）。当终端不是 tty（如 systemd / nohup / CI 重定向）时，main.py 会自动降级到 stdin 文本交互，不会因 TUI 渲染失败而退出。
 
 ### 命令行 GUI 交互
 

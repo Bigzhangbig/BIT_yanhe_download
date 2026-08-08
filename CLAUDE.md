@@ -20,11 +20,11 @@ Requires Python >=3.14 (per `pyproject.toml`) and ffmpeg installed and available
 
 There are two CLI entry points plus a Web GUI:
 
-- **Unified CLI**: `uv run python main.py [courseID]` — `main()` 根据 `sys.stdout.isatty()` 分流：tty 走 `main_tui()`（curses TUI，箭头 + 空格多选，q 退出），非 tty 或 curses 异常自动降级到 `main_plain()`（stdin 文本交互，可传 `courseID`）。TUI 走三阶段流程：①选课（输入课程号 / 关键词搜索含学期筛选 / 我的课程）→ ②选节数（单节 / 多节 / 全选）→ ③下载自由组合（2 视频 + 3 音频 multi_select）。下载逻辑在 `_do_download` / `_download_one`，按轨组合走合并 mkv（vga_offset=-0.5，可选是否 map 内嵌音频）或单路 mp4 + 蓝牙 `.aac`，加 `utils.ensure_auth` SSO 3层 fallback。
+- **Unified CLI**: `uv run python main.py [courseID]` — `main()` 根据 `sys.stdout.isatty()` 分流：tty 走 `main_tui()`（Textual 框架 TUI，10 个 `ModalScreen` 子类分阶段，`SelectionList` / `OptionList` / `Input` 控件 + `tui.tcss` CSS 样式），非 tty 或 Textual 渲染异常自动降级到 `main_plain()`（stdin 文本交互，可传 `courseID`）。TUI 走三阶段流程：①选课（输入课程号 / 关键词搜索含学期筛选 / 我的课程）→ ②选节数（单节 / 多节 / 全选）→ ③下载自由组合（2 视频 + 3 音频 multi_select）。下载逻辑在 `_do_download` / `_download_one`，按轨组合走合并 mkv（vga_offset=-0.5，可选是否 map 内嵌音频）或单路 mp4 + 蓝牙 `.aac`，加 `utils.ensure_auth` SSO 3层 fallback。
 - **Thin redirect**: `uv run python gui.py` — 已重定向到 `main.main()`，保留兼容旧入口。
 - **Web GUI**: `uv run python webui_interface.py` — starts a Flask server on `http://0.0.0.0:5001/`, auto-opens browser. Serves static files from `webui/` and templates from `templates/`.
 
-curses 交互层抽离在 `tui.py`（`multi_select` / `single_select` / `config_tui`）。
+Textual TUI 在 `tui.py`（`CourseApp` 主类 + 10 个 `ModalScreen` 子类 + `tui.tcss` CSS 样式；对外接口 `app.run()` 完成后从 `app.result` 读 `(videoList, courseName, professor, selected_videos, tracks_dict)`，失败时 `app.result is None`）。
 
 Optional subtitle generation (after downloading videos):
 - `uv run python gen_caption.py [media_path]` — uses MLX Qwen3-ASR locally. Prompts for model selection if no path is given.
@@ -35,8 +35,9 @@ Optional subtitle generation (after downloading videos):
 
 - `utils.py` — Shared logic for all entry points. Handles HTTP headers, Bearer auth (read/write `auth.txt`), Yanhe API communication (`cbiz.yanhekt.cn`), URL signing with MD5 timestamps, and audio URL fetching.
 - `m3u8dl.py` — Core downloader. Downloads m3u8 streams in parallel (32 threads by default) with bounded queue, handles nested m3u8 playlists, AES key download, periodic signature refresh in a background thread, and merges `.ts` segments into `.mp4` via ffmpeg.
-- `main.py` — 统一 CLI 入口。`main()` 按 `sys.stdout.isatty()` 分流 tty/curses TUI（`main_tui`）与非 tty stdin 降级（`main_plain`）；curses 异常也降级 stdin。共享下载逻辑在 `_do_download` / `_download_one`，按 `_TRACKS` 自由组合走双轨 mkv（vga_offset=-0.5，可选 map 内嵌音频）或单路 mp4 + 蓝牙 `.aac`；蓝牙命名在合并模式用 `name+'-main'` 与历史兼容，单视频模式用 `name`。模块级状态 `_VIDEO_LIST` / `_COURSE_NAME` / `_PROFESSOR` / `_SELECTED_VIDEOS` / `_TRACKS` 跨 `_run_tui` → `_do_download` 传递（单进程单用户 CLI 够用）。
-- `tui.py` — curses 交互层。提供 `multi_select` / `single_select` / `Row` / `draw_line` / `draw_menu` / `draw_multi_select` 等渲染工具，以及三阶段流程 `config_tui`：`_select_course_id`（输入号 / 搜索含学期筛选 / 我的课程）→ `_select_videos`（单节 / 多节 ≥1 / 全选）→ `_select_tracks`（视频轨 ≥1 + 音频轨可空）。
+- `main.py` — 统一 CLI 入口。`main()` 按 `sys.stdout.isatty()` 分流 tty/Textual TUI（`main_tui`）与非 tty stdin 降级（`main_plain`）；Textual 渲染异常也降级 stdin。共享下载逻辑在 `_do_download` / `_download_one`，按 `_TRACKS` 自由组合走双轨 mkv（vga_offset=-0.5，可选 map 内嵌音频）或单路 mp4 + 蓝牙 `.aac`；蓝牙命名在合并模式用 `name+'-main'` 与历史兼容，单视频模式用 `name`。模块级状态 `_VIDEO_LIST` / `_COURSE_NAME` / `_PROFESSOR` / `_SELECTED_VIDEOS` / `_TRACKS` 跨 `main_tui` → `_do_download` 传递（单进程单用户 CLI 够用）。
+- `tui.py` — Textual TUI 交互层。`CourseApp(App)` 主类 + 10 个 `ModalScreen` 子类分三阶段：阶段 1 `ChooseCourseScreen`（输入课程号 / 搜索 / 我的课程，搜索/学期筛选用 `SelectionList`）、`InputCourseIdScreen` / `SearchCourseScreen` / `PickOneScreen`；阶段 2 `ChooseVideosScreen`（单节/多节/全选）/ `SingleVideoScreen`（`OptionList`）/ `MultiVideoScreen`（`SelectionList`，≥1）；阶段 3 `ChooseTracksScreen`（`SelectionList` 视频轨 ≥1 + 音频轨可空）。辅助屏 `AuthTokenScreen`（手动粘贴 token）和 `MessageScreen`（错误/提示）。CSS 样式独立在 `tui.tcss`（`CourseApp.CSS_PATH` 引用，frozen 环境用 `sys._MEIPASS` 解析）。对外接口：`app = CourseApp(); app.run()` 完成后从 `app.result` 读 `(videoList, courseName, professor, selected_videos, tracks_dict)`。
+- `tui.tcss` — Textual CSS 样式（配色 / 圆角边框 / 状态栏 / 按钮居中等）。PyInstaller 打包时由 `hooks/hook-textual.py` 收集。
 - `gui.py` — 5 行薄重定向，`from main import main`，保留兼容旧入口。
 - `webui_interface.py` — Web GUI，Flask + 多进程 + 线程，独立于 CLI。
 - `gen_caption.py` — Standalone script. Extracts audio with ffmpeg, transcribes with MLX Qwen3-ASR, and writes `.srt` subtitles (simplified Chinese via `zhconv`).
@@ -79,6 +80,7 @@ Release executables are built with PyInstaller. See `README.md` for full details
 - `webui_interface.py` requires `--add-data webui:webui --add-data templates:templates`.
 - `gen_caption.py` may hit recursion depth during PyInstaller analysis; fix by adding `import sys; sys.setrecursionlimit(sys.getrecursionlimit() * 5)` to the generated `.spec` file.
 - PyInstaller hook files in `hooks/` (`hook-mlx_audio.py`, `hook-zhconv.py`) may need to be copied to PyInstaller's hooks directory.
+- Textual TUI 打包：Textual 无官方 PyInstaller hook，需用项目自带的 `hooks/hook-textual.py`（`collect_submodules('textual'/'rich')` + `collect_data_files('textual'/'textual.widgets')` + 项目自带 `tui.tcss`）。打包 `main.py` 时加 `--additional-hooks-dir hooks`。`tui.py` 中 `CSS_PATH` 通过 `sys._MEIPASS` 解析，frozen 环境自动定位。已知遗留：Windows 渲染异常（Textual issue #5162）待 Windows 环境验证。
 
 ## Important Notes
 
