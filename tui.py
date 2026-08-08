@@ -52,7 +52,8 @@ def _format_course(c: dict) -> str:
         f"{prof_str}\n"
         f"{room_str}\n"
         f"{college} {count}人感兴趣\n"
-        f"学期: {year} 第{semester}学期"
+        f"学期: {year} 第{semester}学期\n"
+        f"{'─' * 40}"
     )
 
 

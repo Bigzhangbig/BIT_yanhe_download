@@ -378,6 +378,7 @@ class FormatCourseTest(unittest.TestCase):
             "文萃楼F102",
             "化学与化工学院 37人感兴趣",
             "学期: 2025-2026 第2学期",
+            "─" * 40,
         ]))
 
     def test_missing_fields_fallback(self):
