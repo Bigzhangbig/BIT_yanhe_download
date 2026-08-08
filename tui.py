@@ -35,6 +35,27 @@ else:
 _CSS_PATH = os.path.join(_BASE_DIR, "tui.tcss")
 
 
+def _format_course(c: dict) -> str:
+    """课程对象 → OptionList 多行展示。字段缺失走兜底。"""
+    name = c.get("name_zh") or c.get("name") or "未知课程"
+    profs = c.get("professors") or []
+    prof_str = "/".join(profs) if profs else "未知教师"
+    rooms = c.get("classrooms") or []
+    room_names = [r.get("name", "") for r in rooms if r.get("name")]
+    room_str = "/".join(room_names) if room_names else "未知教室"
+    college = c.get("college_name") or "未知学院"
+    count = c.get("participant_count", "?")
+    year = c.get("school_year") or "未知学年"
+    semester = c.get("semester", "?")
+    return (
+        f"{name}\n"
+        f"{prof_str}\n"
+        f"{room_str}\n"
+        f"{college} {count}人感兴趣\n"
+        f"学期: {year} 第{semester}学期"
+    )
+
+
 # ---------- 阶段1: 选课 ----------
 
 class ChooseCourseScreen(ModalScreen[str]):
@@ -92,10 +113,7 @@ class ChooseCourseScreen(ModalScreen[str]):
         if not courses:
             self.app.push_screen(MessageScreen("未找到任何课程", back=True))
             return
-        labels = [
-            (f"{c['id']} - {c.get('name_zh') or c.get('name') or '?'}", str(c["id"]))
-            for c in courses
-        ]
+        labels = [(_format_course(c), str(c["id"])) for c in courses]
         self.app.push_screen(
             PickOneScreen(f"{label} — 请选择课程", labels, f"共 {len(courses)} 门"),
             self._on_result,
@@ -182,10 +200,7 @@ class SearchCourseScreen(ModalScreen[str]):
         if not courses:
             self.app.push_screen(MessageScreen("未找到任何课程", back=True))
             return
-        labels = [
-            (f"{c['id']} - {c.get('name_zh') or c.get('name') or '?'}", str(c["id"]))
-            for c in courses
-        ]
+        labels = [(_format_course(c), str(c["id"])) for c in courses]
         self.app.push_screen(
             PickOneScreen("搜索结果 — 请选择课程", labels, f"共 {len(courses)} 门"),
             self._on_pick,
@@ -236,97 +251,6 @@ class PickOneScreen(ModalScreen[str]):
 
 
 # ---------- 阶段2: 选节 ----------
-
-class ChooseVideosScreen(ModalScreen[list[int] | None]):
-    """阶段2: 选节数。返回 [index, ...]，None 表示取消。"""
-
-    BINDINGS = [
-        Binding("escape", "cancel", "取消"),
-        Binding("enter", "select", "确认"),
-    ]
-
-    def __init__(self, videoList: list, courseName: str) -> None:
-        super().__init__()
-        self._videoList = videoList
-        self._courseName = courseName
-
-    def compose(self) -> ComposeResult:
-        yield Static(f"课程：{self._courseName} ({len(self._videoList)} 节)", id="title")
-        yield Static("选择节数范围", id="subtitle")
-        with Vertical(id="stage"):
-            ol = OptionList(id="video-actions")
-            ol.add_option(Option("单节", id="single"))
-            ol.add_option(Option("多节", id="multi"))
-            ol.add_option(Option("全选", id="all"))
-            yield ol
-        yield Static("Esc 取消", id="status")
-
-    def on_mount(self) -> None:
-        self.query_one("#video-actions", OptionList).focus()
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        self._dispatch(event.option.id)
-
-    def action_select(self) -> None:
-        ol = self.query_one("#video-actions", OptionList)
-        if ol.highlighted is not None:
-            opt = ol.get_option_at_index(ol.highlighted)
-            self._dispatch(opt.id)
-
-    def _dispatch(self, option_id: str | None) -> None:
-        if option_id == "single":
-            self.app.push_screen(
-                SingleVideoScreen(self._videoList, self._courseName), self._on_pick
-            )
-        elif option_id == "multi":
-            self.app.push_screen(
-                MultiVideoScreen(self._videoList, self._courseName), self._on_pick
-            )
-        elif option_id == "all":
-            self.dismiss(list(range(len(self._videoList))))
-
-    def _on_pick(self, result: list[int] | None) -> None:
-        if result is not None:
-            self.dismiss(result)
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
-
-
-class SingleVideoScreen(ModalScreen[list[int]]):
-    """单选一节视频。"""
-
-    BINDINGS = [Binding("escape", "cancel", "返回")]
-
-    def __init__(self, videoList: list, courseName: str) -> None:
-        super().__init__()
-        self._videoList = videoList
-        self._courseName = courseName
-
-    def compose(self) -> ComposeResult:
-        yield Static(f"课程：{self._courseName}", id="title")
-        yield Static("请选择单节视频", id="subtitle")
-        with Vertical(id="stage"):
-            ol = OptionList(id="videos")
-            for v in self._videoList:
-                ol.add_option(Option(v["title"], id=str(v.get("id", v["title"]))))
-            yield ol
-        yield Static("Enter 确认 · Esc 返回", id="status")
-
-    def on_mount(self) -> None:
-        self.query_one("#videos", OptionList).focus()
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option.id is None:
-            return
-        for i, v in enumerate(self._videoList):
-            if str(v.get("id", v["title"])) == event.option.id:
-                self.dismiss([i])
-                return
-
-    def action_cancel(self) -> None:
-        self.dismiss([])
-
 
 class MultiVideoScreen(ModalScreen[list[int]]):
     """多选视频 (≥1)。"""
@@ -541,7 +465,7 @@ class CourseApp(App):
             self.push_screen(MessageScreen("该课程没有视频", back=False))
             return
         self.push_screen(
-            ChooseVideosScreen(videoList, courseName),
+            MultiVideoScreen(videoList, courseName),
             lambda sel: self._on_videos(videoList, courseName, professor, sel),
         )
 

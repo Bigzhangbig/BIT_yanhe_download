@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import m3u8dl
 import main  # noqa: E402
+import tui  # noqa: E402
 import utils  # noqa: E402
 
 
@@ -355,6 +356,44 @@ class ImportSmokeTest(unittest.TestCase):
     def test_imports(self):
         import tui  # noqa: F401
         self.assertTrue(callable(main.main))
+
+
+class FormatCourseTest(unittest.TestCase):
+    """验证 _format_course 多行格式 + 字段缺失兜底。"""
+
+    def test_full_fields(self):
+        c = {
+            "name_zh": "分子动力学模拟基础与机器学习前沿",
+            "professors": ["杜建新", "李向梅"],
+            "classrooms": [{"name": "文萃楼F102"}],
+            "college_name": "化学与化工学院",
+            "participant_count": 37,
+            "school_year": "2025-2026",
+            "semester": 2,
+        }
+        out = tui._format_course(c)
+        self.assertEqual(out, "\n".join([
+            "分子动力学模拟基础与机器学习前沿",
+            "杜建新/李向梅",
+            "文萃楼F102",
+            "化学与化工学院 37人感兴趣",
+            "学期: 2025-2026 第2学期",
+        ]))
+
+    def test_missing_fields_fallback(self):
+        out = tui._format_course({"name_zh": "测试"})
+        self.assertIn("未知教师", out)
+        self.assertIn("未知教室", out)
+        self.assertIn("未知学院", out)
+        self.assertIn("未知学年", out)
+        self.assertIn("第?学期", out)
+
+    def test_multi_classroom(self):
+        out = tui._format_course({
+            "name_zh": "X", "professors": ["A"],
+            "classrooms": [{"name": "A101"}, {"name": "A102"}],
+        })
+        self.assertIn("A101/A102", out)
 
 
 class ChooseTracksScreenTest(unittest.IsolatedAsyncioTestCase):
