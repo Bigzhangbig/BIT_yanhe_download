@@ -333,3 +333,17 @@ def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv, keep_intermediate=Fal
                 os.remove(f)
         if audio_aac and os.path.exists(audio_aac):
             os.remove(audio_aac)
+
+
+def extract_audio(mp4_path, aac_path):
+    """从 mp4 提取音频为 .aac (ffmpeg -vn -acodec copy, 不重编码)。"""
+    run(
+        [
+            utils.get_ffmpeg_command(),
+            "-i", mp4_path,
+            "-vn",
+            "-acodec", "copy",
+            aac_path,
+        ],
+        check=True,
+    )

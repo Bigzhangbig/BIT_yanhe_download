@@ -386,9 +386,9 @@ class ChooseTracksScreen(ModalScreen[dict | None]):
 
     def compose(self) -> ComposeResult:
         yield Static(f"课程：{self._courseName}", id="title")
-        yield Static("选择视频轨 (≥1) + 音频轨 (可空)", id="subtitle")
+        yield Static("选择视频轨 (可空) + 音频轨 (可空, 但两者至少 1 个)", id="subtitle")
         with Vertical(id="stage"):
-            yield Label("视频轨 (≥1)：")
+            yield Label("视频轨 (可空)：")
             yield SelectionList(
                 Selection("摄像头视频 (main)", "main", True),
                 Selection("屏幕视频 (vga)", "vga", True),
@@ -415,8 +415,8 @@ class ChooseTracksScreen(ModalScreen[dict | None]):
             a: SelectionList = self.query_one("#audio-tracks", SelectionList)
             vsel = set(v.selected)
             asel = set(a.selected)
-            if not vsel:
-                self.query_one("#msg", Static).update("请至少选择一个视频轨")
+            if not vsel and not asel:
+                self.query_one("#msg", Static).update("请至少选择一个轨道（视频或音频）")
                 return
             self.dismiss({
                 "want_main": "main" in vsel,

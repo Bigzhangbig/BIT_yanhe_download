@@ -106,18 +106,46 @@ def _do_download():
 def _download_one(c, name):
     """单条视频下载 — 自由组合 want_main/want_vga/want_bluetooth/want_main_audio/want_vga_audio。
 
+    - 0 视频 (want_main=want_vga=False) → 只下音频到 output/<课程名>-audio/，每路 .aac 独立
     - 双视频 (want_main and want_vga) → 合并 mkv 到 output/<课程名>-merged/
     - 单视频 (仅 main 或仅 vga) → 不合并，mp4 独立
       - 仅 main → output/<课程名>-video/
       - 仅 vga → output/<课程名>-screen/
     - 蓝牙 .aac 跟随: 合并时用 name+"-main" 命名 (与历史兼容)，单视频时用 name 命名
-    - 音频轨 want_main_audio / want_vga_audio 只在合并 mkv 时生效 (控制是否 map 内嵌轨)
+    - 音频轨 want_main_audio / want_vga_audio 只在合并 mkv 时或 0 视频时生效
     """
     want_main = _TRACKS["want_main"]
     want_vga = _TRACKS["want_vga"]
     want_bluetooth = _TRACKS["want_bluetooth"]
     want_main_audio = _TRACKS["want_main_audio"]
     want_vga_audio = _TRACKS["want_vga_audio"]
+
+    # 0 视频分支: 只下音频, 选几路就几个独立 .aac 文件
+    if not (want_main or want_vga):
+        path = f"output/{_COURSE_NAME}-audio"
+        os.makedirs(path, exist_ok=True)
+        if want_bluetooth and c["video_ids"]:
+            audio_url = utils.get_audio_url(c["video_ids"][0])
+            if audio_url:
+                print("Downloading bluetooth audio...")
+                utils.download_audio(audio_url, path, name + "-bluetooth")
+        if want_main_audio:
+            print("Downloading main for audio extraction...")
+            m3u8dl.M3u8Download(c["videos"][0]["main"], path, name + "-main")
+            m3u8dl.extract_audio(
+                os.path.join(path, name + "-main.mp4"),
+                os.path.join(path, name + "-main-audio.aac"),
+            )
+            os.remove(os.path.join(path, name + "-main.mp4"))
+        if want_vga_audio:
+            print("Downloading vga for audio extraction...")
+            m3u8dl.M3u8Download(c["videos"][0]["vga"], path, name + "-vga")
+            m3u8dl.extract_audio(
+                os.path.join(path, name + "-vga.mp4"),
+                os.path.join(path, name + "-vga-audio.aac"),
+            )
+            os.remove(os.path.join(path, name + "-vga.mp4"))
+        return
 
     if want_main and want_vga:
         # 双轨 → 合并 mkv
