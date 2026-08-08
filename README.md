@@ -7,6 +7,7 @@
 - **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` `headful_login`（自动启动有头浏览器完成剩余登录）
 - **`ensure_auth()` 自动 SSO**：所有下载入口（CLI / TUI / WebUI）`auth.txt` 失效时自动走 3 层 fallback，用户零操作
 - **统一 CLI 入口 `main.py`**：curses TUI（tty）+ stdin 文本交互（非 tty 自动降级），同一脚本覆盖交互与批处理；`gui.py` 改为 5 行薄重定向保留兼容
+- **三阶段 TUI 流程**：`main.py` 启动后先选课程获取方式（输入课程号 / 关键词搜索（支持学期筛选）/ 我的课程）→ 再选节数（单节 / 多节 / 全选）→ 最后选下载轨道（2 路视频 + 3 路音频自由组合：摄像头 / 屏幕 / 蓝牙话筒 / 摄像头内嵌 / 屏幕内嵌）
 - **跨平台支持（Windows / macOS / Linux）**：`get_ffmpeg_command()` 智能 ffmpeg 查找（env / cwd / homebrew / /usr/bin / /snap/bin / PATH 优先级）、PyInstaller frozen 路径、patchright 三平台 profile 路径、captcha 图片查看器跨平台调用（macOS `open` / Linux `xdg-open` / Windows `os.startfile`）、临时文件统一走 `tempfile.gettempdir()`（Linux/macOS 是 `/tmp`，Windows 是 `%TEMP%`）
 - **WebUI 课程搜索面板**：`/search_courses` + `/my_courses` + `/semesters` 三个端点 + 前端 Tab 切换 + 学期筛选 + 分页
 - **4 种非交互 captcha 自动识别**：图形图片（macOS Preview 弹窗）/ SMS / 邮件 / 隐形 reCAPTCHA
@@ -189,6 +190,19 @@ uv run python main.py 40524
 
 `uv run python gui.py` 仍可用，已重定向到 `main.py`（兼容旧入口，行为一致）。
 
+`main.py` 启动 curses TUI 后会按顺序走三个阶段：
+
+1. **选择课程**：三选一
+   - 输入课程号（`yanhekt.cn/course/` 后的 5 位 ID）
+   - 关键词搜索（先可选学期多选 / 全不选=不筛选，再选课程）
+   - 我的课程（拉取当前账号已选课程）
+2. **选择节数**：单节 / 多节（≥1）/ 全选
+3. **选择下载轨道**：自由组合
+   - 视频轨（≥1）：摄像头（main）/ 屏幕（vga）
+   - 音频轨（可空）：蓝牙话筒 / 摄像头内嵌音频 / 屏幕内嵌音频
+
+非 tty 环境（管道 / CI / systemd）自动降级到 stdin 文本交互，传入 `courseID` 时跳过阶段 1 第 1 步提示，下载选项默认全选 + 双轨合并。
+
 程序会优先查找项目目录、打包目录、`/opt/homebrew/bin/ffmpeg`、`/usr/local/bin/ffmpeg` 和 PATH 中的 `ffmpeg`。如果你的 `ffmpeg` 在其他位置，可以通过环境变量指定：
 
 ```bash
@@ -254,6 +268,19 @@ uv run python main.py 40524
 ```
 
 `uv run python gui.py` 仍可用，已重定向到 `main.py`（兼容旧入口，行为一致）。
+
+`main.py` 启动 curses TUI 后会按顺序走三个阶段：
+
+1. **选择课程**：三选一
+   - 输入课程号（`yanhekt.cn/course/` 后的 5 位 ID）
+   - 关键词搜索（先可选学期多选 / 全不选=不筛选，再选课程）
+   - 我的课程（拉取当前账号已选课程）
+2. **选择节数**：单节 / 多节（≥1）/ 全选
+3. **选择下载轨道**：自由组合
+   - 视频轨（≥1）：摄像头（main）/ 屏幕（vga）
+   - 音频轨（可空）：蓝牙话筒 / 摄像头内嵌音频 / 屏幕内嵌音频
+
+非 tty 环境（管道 / CI / systemd）自动降级到 stdin 文本交互，传入 `courseID` 时跳过阶段 1 第 1 步提示，下载选项默认全选 + 双轨合并。
 
 程序会按 `FFMPEG_BINARY` 环境变量 > 当前工作目录 > `/usr/bin/ffmpeg` > `/snap/bin/ffmpeg` > `PATH` 中的 `ffmpeg` 顺序查找。如果你的 `ffmpeg` 在其他位置，可以通过环境变量指定：
 

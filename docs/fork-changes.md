@@ -106,18 +106,22 @@ upstream 用 `openai-whisper`；本 fork 替换为 MLX Qwen3-ASR，量化可选�
 | 配置模板 | `.env.example`（`STUDENT_ID` / `PASSWORD` 命名） |
 | 本文件 | `docs/fork-changes.md`（本文档） |
 
-### H. 统一 CLI 入口（1 项）
+### H. 统一 CLI 入口（8 项）
 
 upstream 把"原始交互方式"（main.py，stdin）和"命令行 GUI"（gui.py，curses）拆成两个独立入口，逻辑分散、传参靠 global state；本 fork 收敛到 `main.py` 一个入口，`gui.py` 退化为薄重定向。
 
 | 项 | 关键文件 / 位置 |
 | --- | --- |
 | 统一入口 | `main.py` `main()` 按 `sys.stdout.isatty()` 分流 tty → `main_tui()`（curses TUI）/ 非 tty → `main_plain()`（stdin 文本交互，可传 `sys.argv[1]` 作 courseID）；curses 初始化失败时也降级 stdin |
-| 共享下载 | `main.py` `_do_download` / `_download_one`，模式 0=main / 1=vga / 2=merge（双轨 mkv vga_offset=-0.5）+ 蓝牙音频条件下载 + `utils.ensure_auth` SSO 3层 fallback |
-| TUI 抽离 | `tui.py` 新文件：curses 交互层（`Row` / `draw_line` / `draw_menu` / `draw_multi_select` / `multi_select` / `single_select` / `config_tui`） |
-| TUI 流程 | `tui.config_tui`：课程ID → ensure_auth → 视频多选（≥1）→ 下载模式单选（默认双轨合并）→ 蓝牙音频多选 |
+| 共享下载 | `main.py` `_do_download` / `_download_one`，按 `_TRACKS` 自由组合走双轨 mkv（vga_offset=-0.5）或单路 mp4 + 蓝牙 `.aac` + `utils.ensure_auth` SSO 3层 fallback |
+| TUI 抽离 | `tui.py`：curses 交互层（`Row` / `draw_line` / `draw_menu` / `draw_multi_select` / `multi_select` / `single_select` / `_pick_course` / `_ensure_at_least_one`） |
+| 三阶段 TUI 流程 | `tui.config_tui`：阶段 1 `_select_course_id`（输入课程号 / 关键词搜索含学期筛选 / 我的课程）→ 阶段 2 `_select_videos`（单节 / 多节 ≥1 / 全选）→ 阶段 3 `_select_tracks`（视频轨 ≥1 + 音频轨可空） |
+| 下载自由组合 | 阶段 3 视频 multi_select（摄像头 main / 屏幕 vga，≥1）+ 音频 multi_select（蓝牙话筒 / 摄像头内嵌 / 屏幕内嵌，可空），组合成 5 个 bool 传给 `_download_one` |
+| 学期筛选 | `utils.search_courses(semesters=...)` 支持多选学期参数（`tests/test_refactor.py::SearchCoursesSemestersTest` 验证 `semesters[]=` 列表展开） |
+| `merge_to_mkv` 选择性音频 map | `m3u8dl.merge_to_mkv` 新增 `include_main_audio` / `include_vga_audio` 参数，控制是否 map 内嵌音频轨（默认 True） |
+| 回归测试 | `tests/test_refactor.py`（18 个 unittest case 覆盖 `merge_to_mkv` 5 种音频组合 / `_download_one` 5 种视频组合 / `search_courses` 学期参数 / 主流程模块 import） |
 | 兼容保留 | `gui.py` 5 行重定向 `from main import main`，旧脚本/旧文档引用继续可用 |
-| 反模式清理 | 移除 `gui.py` 旧有 global 跨函数传参（被模块级 `_SELECTED_VIDEOS` / `_DOWNLOAD_MODE` / `_DOWNLOAD_AUDIO` 替代，单进程单用户 CLI 够用） |
+| 反模式清理 | 移除 `gui.py` 旧有 global 跨函数传参（被模块级 `_VIDEO_LIST` / `_COURSE_NAME` / `_PROFESSOR` / `_SELECTED_VIDEOS` / `_TRACKS` 替代，单进程单用户 CLI 够用） |
 
 ## 用法
 

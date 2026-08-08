@@ -20,7 +20,7 @@ Requires Python >=3.14 (per `pyproject.toml`) and ffmpeg installed and available
 
 There are two CLI entry points plus a Web GUI:
 
-- **Unified CLI**: `uv run python main.py [courseID]` — `main()` 根据 `sys.stdout.isatty()` 分流：tty 走 `main_tui()`（curses TUI，箭头 + 空格多选，q 退出），非 tty 或 curses 异常自动降级到 `main_plain()`（stdin 文本交互，可传 `courseID`）。功能完整：下载模式三选一（摄像头 / 屏幕 / 双轨合并 `merge_to_mkv` vga_offset=-0.5）+ 蓝牙音频条件下载 + `utils.ensure_auth` SSO 3层 fallback。
+- **Unified CLI**: `uv run python main.py [courseID]` — `main()` 根据 `sys.stdout.isatty()` 分流：tty 走 `main_tui()`（curses TUI，箭头 + 空格多选，q 退出），非 tty 或 curses 异常自动降级到 `main_plain()`（stdin 文本交互，可传 `courseID`）。TUI 走三阶段流程：①选课（输入课程号 / 关键词搜索含学期筛选 / 我的课程）→ ②选节数（单节 / 多节 / 全选）→ ③下载自由组合（2 视频 + 3 音频 multi_select）。下载逻辑在 `_do_download` / `_download_one`，按轨组合走合并 mkv（vga_offset=-0.5，可选是否 map 内嵌音频）或单路 mp4 + 蓝牙 `.aac`，加 `utils.ensure_auth` SSO 3层 fallback。
 - **Thin redirect**: `uv run python gui.py` — 已重定向到 `main.main()`，保留兼容旧入口。
 - **Web GUI**: `uv run python webui_interface.py` — starts a Flask server on `http://0.0.0.0:5001/`, auto-opens browser. Serves static files from `webui/` and templates from `templates/`.
 
@@ -35,8 +35,8 @@ Optional subtitle generation (after downloading videos):
 
 - `utils.py` — Shared logic for all entry points. Handles HTTP headers, Bearer auth (read/write `auth.txt`), Yanhe API communication (`cbiz.yanhekt.cn`), URL signing with MD5 timestamps, and audio URL fetching.
 - `m3u8dl.py` — Core downloader. Downloads m3u8 streams in parallel (32 threads by default) with bounded queue, handles nested m3u8 playlists, AES key download, periodic signature refresh in a background thread, and merges `.ts` segments into `.mp4` via ffmpeg.
-- `main.py` — 统一 CLI 入口。`main()` 按 `sys.stdout.isatty()` 分流 tty/curses TUI（`main_tui`）与非 tty stdin 降级（`main_plain`）；curses 异常也降级 stdin。共享下载逻辑在 `_do_download` / `_download_one`，支持 0=main / 1=vga / 2=merge 三种下载模式 + 蓝牙音频条件下载 + `utils.ensure_auth` SSO 3层 fallback。
-- `tui.py` — curses 交互层。提供 `multi_select` / `single_select` / `config_tui`（TUI 完整流程：课程ID -> ensure_auth -> 视频多选 -> 下载模式单选 -> 蓝牙音频多选），以及 `Row` / `draw_line` / `draw_menu` / `draw_multi_select` 等渲染工具。
+- `main.py` — 统一 CLI 入口。`main()` 按 `sys.stdout.isatty()` 分流 tty/curses TUI（`main_tui`）与非 tty stdin 降级（`main_plain`）；curses 异常也降级 stdin。共享下载逻辑在 `_do_download` / `_download_one`，按 `_TRACKS` 自由组合走双轨 mkv（vga_offset=-0.5，可选 map 内嵌音频）或单路 mp4 + 蓝牙 `.aac`；蓝牙命名在合并模式用 `name+'-main'` 与历史兼容，单视频模式用 `name`。模块级状态 `_VIDEO_LIST` / `_COURSE_NAME` / `_PROFESSOR` / `_SELECTED_VIDEOS` / `_TRACKS` 跨 `_run_tui` → `_do_download` 传递（单进程单用户 CLI 够用）。
+- `tui.py` — curses 交互层。提供 `multi_select` / `single_select` / `Row` / `draw_line` / `draw_menu` / `draw_multi_select` 等渲染工具，以及三阶段流程 `config_tui`：`_select_course_id`（输入号 / 搜索含学期筛选 / 我的课程）→ `_select_videos`（单节 / 多节 ≥1 / 全选）→ `_select_tracks`（视频轨 ≥1 + 音频轨可空）。
 - `gui.py` — 5 行薄重定向，`from main import main`，保留兼容旧入口。
 - `webui_interface.py` — Web GUI，Flask + 多进程 + 线程，独立于 CLI。
 - `gen_caption.py` — Standalone script. Extracts audio with ffmpeg, transcribes with MLX Qwen3-ASR, and writes `.srt` subtitles (simplified Chinese via `zhconv`).
