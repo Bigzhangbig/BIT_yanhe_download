@@ -68,7 +68,7 @@ class ChooseCourseScreen(ModalScreen[str]):
         except Exception as e:
             self.app.push_screen(MessageScreen(f"获取课程失败: {e}", back=True))
             return
-        courses = result.get("data", [])
+        courses = result if isinstance(result, list) else result.get("data", [])
         if not courses:
             self.app.push_screen(MessageScreen("未找到任何课程", back=True))
             return
@@ -77,7 +77,7 @@ class ChooseCourseScreen(ModalScreen[str]):
             for c in courses
         ]
         self.app.push_screen(
-            PickOneScreen(f"{label} — 请选择课程", labels, f"共 {result.get('total', len(courses))} 门"),
+            PickOneScreen(f"{label} — 请选择课程", labels, f"共 {len(courses)} 门"),
             self._on_result,
         )
 
@@ -151,7 +151,7 @@ class SearchCourseScreen(ModalScreen[str]):
         except Exception as e:
             self.app.push_screen(MessageScreen(f"搜索课程失败: {e}", back=True))
             return
-        courses = result.get("data", [])
+        courses = result if isinstance(result, list) else result.get("data", [])
         if not courses:
             self.app.push_screen(MessageScreen("未找到任何课程", back=True))
             return
@@ -160,7 +160,7 @@ class SearchCourseScreen(ModalScreen[str]):
             for c in courses
         ]
         self.app.push_screen(
-            PickOneScreen("搜索结果 — 请选择课程", labels, f"共 {result.get('total', len(courses))} 门"),
+            PickOneScreen("搜索结果 — 请选择课程", labels, f"共 {len(courses)} 门"),
             self._on_pick,
         )
 

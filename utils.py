@@ -207,7 +207,7 @@ def search_courses(keyword="", page=1, page_size=16, semesters=None):
     - page: 页码
     - page_size: 每页数量
     - semesters: 学期 ID 列表，如 [100, 96]
-    返回 {"data": [...], "current_page": 1, "last_page": 5, "total": 80}
+    返回课程 list（[...]，每项含 id / name_zh 等；分页信息 current_page / total 在 API 顶层但本函数未返回）
     """
     params = {"page": page, "page_size": page_size}
     if keyword:
@@ -241,7 +241,7 @@ def search_courses(keyword="", page=1, page_size=16, semesters=None):
 def get_my_courses(page=1, page_size=16):
     """
     获取个人录播课程列表。
-    返回 {"data": [...], "current_page": 1, "last_page": 3, "total": 48}
+    返回课程 list（[...]，每项含 id / name_zh 等；分页信息在 API 顶层但本函数未返回）
     """
     res = requests.get(
         "https://cbiz.yanhekt.cn/v2/course/private/list",
