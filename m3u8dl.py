@@ -286,14 +286,14 @@ class M3u8Download:
         os.remove(self._file_path + ".m3u8")
 
 
-def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv, keep_intermediate=False, vga_offset=0.0):
-    """合并两路视频+蓝牙音频成双轨 mkv (-c copy, 不重编码)。
+def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv, keep_intermediate=False, vga_offset=0.0,
+                 include_main_audio=True, include_vga_audio=True):
+    """合并两路视频+可选蓝牙音频成多轨 mkv (-c copy, 不重编码)。
 
-    mkv 含: video track 1(摄像头) + video track 2(屏幕) + audio track 1(蓝牙,
-    默认音轨) + audio track 2(摄像头内嵌) + audio track 3(屏幕内嵌)。
-    audio_aac=None 时退化为 2 video + 2 audio(各内嵌)。
-    vga_offset: vga 视频相对 main 的时间偏移(秒), 用 -itsoffset 对齐两路画面。
-    正值延后 vga, 负值提前 vga。0=不对齐。
+    视频: 始终 map 0:v (摄像头) + 1:v (屏幕)。
+    音频 map 顺序: 蓝牙(若有) → 摄像头内嵌 → 屏幕内嵌，按 include_* 决定是否 map。
+    audio_aac=None 时跳过蓝牙轨。
+    vga_offset: vga 视频相对 main 的时间偏移(秒)，-0.5 表示 vga 提前 0.5s 对齐。
     """
     cmd = [
         utils.get_ffmpeg_command(),
@@ -304,34 +304,32 @@ def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv, keep_intermediate=Fal
     cmd += ["-i", vga_mp4]
     if audio_aac:
         cmd += ["-i", audio_aac]
-    # map: video 先, 蓝牙 audio 作默认音轨(track 0), 然后内嵌 audio
+    # 视频轨: 始终双路
     cmd += ["-map", "0:v", "-map", "1:v"]
+    # 音频轨: 按用户选择 map，蓝牙在 track 0 (作默认音轨)
+    audio_titles = []
     if audio_aac:
-        cmd += ["-map", "2:a", "-map", "0:a", "-map", "1:a"]
-    else:
-        cmd += ["-map", "0:a", "-map", "1:a"]
+        cmd += ["-map", "2:a"]
+        audio_titles.append("蓝牙话筒")
+    if include_main_audio:
+        cmd += ["-map", "0:a"]
+        audio_titles.append("摄像头内嵌")
+    if include_vga_audio:
+        cmd += ["-map", "1:a"]
+        audio_titles.append("屏幕内嵌")
     cmd += [
         "-c", "copy",
         "-metadata:s:v:0", "title=摄像头",
         "-metadata:s:v:1", "title=屏幕",
     ]
-    if audio_aac:
-        cmd += [
-            "-metadata:s:a:0", "title=蓝牙话筒",
-            "-metadata:s:a:1", "title=摄像头内嵌",
-            "-metadata:s:a:2", "title=屏幕内嵌",
-        ]
-    else:
-        cmd += [
-            "-metadata:s:a:0", "title=摄像头内嵌",
-            "-metadata:s:a:1", "title=屏幕内嵌",
-        ]
+    for i, title in enumerate(audio_titles):
+        cmd += [f"-metadata:s:a:{i}", f"title={title}"]
     cmd.append(output_mkv)
     run(cmd, check=True)
     # 清理中间文件
     if not keep_intermediate:
         for f in (main_mp4, vga_mp4):
-            if os.path.exists(f):
+            if f and os.path.exists(f):
                 os.remove(f)
         if audio_aac and os.path.exists(audio_aac):
             os.remove(audio_aac)

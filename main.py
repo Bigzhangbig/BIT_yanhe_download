@@ -7,12 +7,11 @@ import utils
 
 # 选择结果在 main_plain / _run_tui → _do_download 间传递 (无 tty 走 plain，tty 走 TUI)。
 # 保留模块级状态而非 threading.local，单进程单用户 CLI 够用，且调用顺序固定。
-_SELECTED_VIDEOS: list = []
-_DOWNLOAD_MODE: int = 0  # 0=main, 1=vga, 2=merge
-_DOWNLOAD_AUDIO: list = []
 _VIDEO_LIST: list = []
 _COURSE_NAME: str = ""
 _PROFESSOR: str = ""
+_SELECTED_VIDEOS: list = []
+_TRACKS: dict = {}  # {want_main, want_vga, want_bluetooth, want_main_audio, want_vga_audio}
 
 
 @utils.print_help
@@ -28,24 +27,23 @@ def _run_tui(stdscr):
     import tui
 
     global _VIDEO_LIST, _COURSE_NAME, _PROFESSOR
-    global _SELECTED_VIDEOS, _DOWNLOAD_MODE, _DOWNLOAD_AUDIO
+    global _SELECTED_VIDEOS, _TRACKS
 
     (
         _VIDEO_LIST,
         _COURSE_NAME,
         _PROFESSOR,
         _SELECTED_VIDEOS,
-        _DOWNLOAD_MODE,
-        _DOWNLOAD_AUDIO,
+        _TRACKS,
     ) = tui.config_tui(stdscr)
     _do_download()
 
 
 @utils.print_help
 def main_plain():
-    """stdin 文本交互 (无 tty 时降级用)。"""
-    global _SELECTED_VIDEOS, _DOWNLOAD_MODE, _DOWNLOAD_AUDIO
+    """stdin 文本交互 (无 tty 时降级用) — 简化为全选模式。"""
     global _VIDEO_LIST, _COURSE_NAME, _PROFESSOR
+    global _SELECTED_VIDEOS, _TRACKS
 
     if len(sys.argv) == 1:
         courseID = input("输 入 课 程 ID: ")
@@ -60,34 +58,30 @@ def main_plain():
             sys.exit()
 
     _VIDEO_LIST, _COURSE_NAME, _PROFESSOR = utils.get_course_info(courseID=courseID)
-    print(f"课 程 名: {_COURSE_NAME}")
+    print(f"课 程 名: {_COURSE_NAME} ({len(_VIDEO_LIST)} 节)")
     for i, c in enumerate(_VIDEO_LIST):
         print(f"[{i}]: ", c["title"])
 
-    _SELECTED_VIDEOS = eval(
-        "["
-        + input(
-            "选 择 课 程 编 号 (用 英 文 逗 号 ','分 隔, 例 如: 0,2,4): "
-        )
-        + "]"
-    )
-    vga = input(
-        "选 择 下 载: 1.摄 像 头 2.电 脑 屏 幕 3.双 轨 合 并"
-        "(摄 像 头+屏 幕+蓝 牙)?(输 入 1/2/3, 默 认 1):"
-    )
-    audio = ""
-    if vga != "3":
-        audio = input(
-            "是 否 下 载 教 室 蓝 牙 话 筒 的 音 频 ?若 教 师 未 使 用 蓝 牙 话 筒"
-            " 则 该 音 频 无 声 音 (输 入 1不 下 载, 默 认 下 载):"
-        )
-    _DOWNLOAD_MODE = {"1": 0, "2": 1, "3": 2}.get(vga, 0)
-    _DOWNLOAD_AUDIO = [0] if (vga != "3" and audio == "") else []
+    # stdin 降级: 默认全选视频 + 全选轨 (双轨合并)
+    sel = input(
+        "选 择 课 程 编 号 (默 认 全 选, 用 逗 号 分 隔, 例 如: 0,2,4): "
+    ).strip()
+    if sel:
+        _SELECTED_VIDEOS = [int(x) for x in sel.split(",") if x.strip()]
+    else:
+        _SELECTED_VIDEOS = list(range(len(_VIDEO_LIST)))
+    _TRACKS = {
+        "want_main": True,
+        "want_vga": True,
+        "want_bluetooth": True,
+        "want_main_audio": True,
+        "want_vga_audio": True,
+    }
     _do_download()
 
 
 def _do_download():
-    """共享下载逻辑：根据 _SELECTED_VIDEOS / _DOWNLOAD_MODE / _DOWNLOAD_AUDIO 执行。"""
+    """共享下载逻辑：根据 _SELECTED_VIDEOS / _TRACKS 执行。"""
     if not os.path.exists("output/"):
         os.mkdir("output/")
 
@@ -112,17 +106,35 @@ def _do_download():
 
 
 def _download_one(c, name):
-    """单条视频下载 — 模式 0=main / 1=vga / 2=merge。"""
-    if _DOWNLOAD_MODE == 2:
-        # 双轨合并
+    """单条视频下载 — 自由组合 want_main/want_vga/want_bluetooth/want_main_audio/want_vga_audio。
+
+    - 双视频 (want_main and want_vga) → 合并 mkv 到 output/<课程名>-merged/
+    - 单视频 (仅 main 或仅 vga) → 不合并，mp4 独立
+      - 仅 main → output/<课程名>-video/
+      - 仅 vga → output/<课程名>-screen/
+    - 蓝牙 .aac 跟随: 合并时用 name+"-main" 命名 (与历史兼容)，单视频时用 name 命名
+    - 音频轨 want_main_audio / want_vga_audio 只在合并 mkv 时生效 (控制是否 map 内嵌轨)
+    """
+    want_main = _TRACKS["want_main"]
+    want_vga = _TRACKS["want_vga"]
+    want_bluetooth = _TRACKS["want_bluetooth"]
+    want_main_audio = _TRACKS["want_main_audio"]
+    want_vga_audio = _TRACKS["want_vga_audio"]
+
+    if want_main and want_vga:
+        # 双轨 → 合并 mkv
         path = f"output/{_COURSE_NAME}-merged"
         os.makedirs(path, exist_ok=True)
-        print("Downloading camera (main)...")
-        m3u8dl.M3u8Download(c["videos"][0]["main"], path, name + "-main")
-        print("Downloading screen (vga)...")
-        m3u8dl.M3u8Download(c["videos"][0]["vga"], path, name + "-vga")
-        audio_aac = None
-        if c["video_ids"]:
+        main_mp4 = vga_mp4 = audio_aac = None
+        if want_main:
+            print("Downloading camera (main)...")
+            m3u8dl.M3u8Download(c["videos"][0]["main"], path, name + "-main")
+            main_mp4 = os.path.join(path, name + "-main.mp4")
+        if want_vga:
+            print("Downloading screen (vga)...")
+            m3u8dl.M3u8Download(c["videos"][0]["vga"], path, name + "-vga")
+            vga_mp4 = os.path.join(path, name + "-vga.mp4")
+        if want_bluetooth and c["video_ids"]:
             audio_url = utils.get_audio_url(c["video_ids"][0])
             if audio_url:
                 print("Downloading bluetooth audio...")
@@ -131,17 +143,19 @@ def _download_one(c, name):
         mkv_path = os.path.join(path, name + ".mkv")
         print("Merging to mkv...")
         m3u8dl.merge_to_mkv(
-            os.path.join(path, name + "-main.mp4"),
-            os.path.join(path, name + "-vga.mp4"),
+            main_mp4,
+            vga_mp4,
             audio_aac,
             mkv_path,
             vga_offset=-0.5,
+            include_main_audio=want_main_audio,
+            include_vga_audio=want_vga_audio,
         )
         print(f"Merged: {mkv_path}")
         return
 
-    # 单路下载
-    if _DOWNLOAD_MODE == 1:
+    # 单路视频: 不合并
+    if want_vga:
         path = f"output/{_COURSE_NAME}-screen"
         print("Downloading screen...")
         m3u8dl.M3u8Download(c["videos"][0]["vga"], path, name)
@@ -150,7 +164,7 @@ def _download_one(c, name):
         print("Downloading video...")
         m3u8dl.M3u8Download(c["videos"][0]["main"], path, name)
 
-    if _DOWNLOAD_AUDIO and c["video_ids"]:
+    if want_bluetooth and c["video_ids"]:
         audio_url = utils.get_audio_url(c["video_ids"][0])
         if audio_url:
             print("Downloading audio...")
