@@ -1,5 +1,7 @@
 import os
+import shlex
 import shutil
+import subprocess
 import sys
 import time
 from hashlib import md5
@@ -347,3 +349,41 @@ def print_help(f: callable):
             print("或者联系作者xu_jyang@163.com。感谢您的报告！")
 
     return wrap
+
+
+def prompt_external(title: str = "请输入", default: str = "") -> str:
+    """弹系统输入框（IME 完整支持），返回用户输入；取消或不支持返回空串。"""
+    title_s = str(title).replace('"', '\\"')
+    default_s = str(default).replace('"', '\\"')
+    try:
+        if sys.platform == "darwin":
+            cmd = [
+                "osascript",
+                "-e",
+                f'text returned of (display dialog "{title_s}" default answer "{default_s}" buttons {{"取消","确定"}} default button "确定")',
+            ]
+        elif sys.platform.startswith("linux"):
+            # ponytail: zenity/kdialog 二选一，按可用性探测
+            if shutil.which("zenity"):
+                cmd = ["zenity", "--entry", f"--title={title}", f"--text={default_s or title}"]
+            elif shutil.which("kdialog"):
+                cmd = ["kdialog", f"--title={title}", "--inputbox", default_s or title, default_s]
+            else:
+                return ""
+        elif os.name == "nt":
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.Interaction]::InputBox('{title_s}','{title_s}','{default_s}')",
+            ]
+        else:
+            return ""
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            return ""
+        return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return ""

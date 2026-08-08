@@ -143,8 +143,9 @@ class SearchCourseScreen(ModalScreen[str]):
         yield Static("搜索课程", id="title")
         yield Static("关键词 (可空) + 学期 (可空=不过滤)", id="subtitle")
         with Vertical(id="stage"):
-            yield Label("搜索关键词 (中文可用 ⌘V / Ctrl+Shift+V 粘贴):")
+            yield Label("搜索关键词 (中文点下方按钮, 英文可直接输 / ⌘V 粘贴):")
             yield Input(placeholder="例如 数据结构 (回车到下一步)", id="keyword")
+            yield Button("输入关键词（中文对话框）", id="kw-dialog")
             yield Label("学期 (空格多选, 全不选=不筛选)：")
             yield SelectionList(id="semesters")
         yield Static("Enter 搜索 · Esc 返回", id="status")
@@ -159,6 +160,12 @@ class SearchCourseScreen(ModalScreen[str]):
         for s in semesters:
             sl.add_option(Selection(s["name"], s["id"]))
         self.query_one("#keyword", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "kw-dialog":
+            keyword = utils.prompt_external("输入搜索关键词")
+            if keyword:
+                self.query_one("#keyword", Input).value = keyword
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         keyword = event.value.strip()
