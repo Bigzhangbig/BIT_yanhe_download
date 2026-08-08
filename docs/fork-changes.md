@@ -106,6 +106,19 @@ upstream 用 `openai-whisper`；本 fork 替换为 MLX Qwen3-ASR，量化可选�
 | 配置模板 | `.env.example`（`STUDENT_ID` / `PASSWORD` 命名） |
 | 本文件 | `docs/fork-changes.md`（本文档） |
 
+### H. 统一 CLI 入口（1 项）
+
+upstream 把"原始交互方式"（main.py，stdin）和"命令行 GUI"（gui.py，curses）拆成两个独立入口，逻辑分散、传参靠 global state；本 fork 收敛到 `main.py` 一个入口，`gui.py` 退化为薄重定向。
+
+| 项 | 关键文件 / 位置 |
+| --- | --- |
+| 统一入口 | `main.py` `main()` 按 `sys.stdout.isatty()` 分流 tty → `main_tui()`（curses TUI）/ 非 tty → `main_plain()`（stdin 文本交互，可传 `sys.argv[1]` 作 courseID）；curses 初始化失败时也降级 stdin |
+| 共享下载 | `main.py` `_do_download` / `_download_one`，模式 0=main / 1=vga / 2=merge（双轨 mkv vga_offset=-0.5）+ 蓝牙音频条件下载 + `utils.ensure_auth` SSO 3层 fallback |
+| TUI 抽离 | `tui.py` 新文件：curses 交互层（`Row` / `draw_line` / `draw_menu` / `draw_multi_select` / `multi_select` / `single_select` / `config_tui`） |
+| TUI 流程 | `tui.config_tui`：课程ID → ensure_auth → 视频多选（≥1）→ 下载模式单选（默认双轨合并）→ 蓝牙音频多选 |
+| 兼容保留 | `gui.py` 5 行重定向 `from main import main`，旧脚本/旧文档引用继续可用 |
+| 反模式清理 | 移除 `gui.py` 旧有 global 跨函数传参（被模块级 `_SELECTED_VIDEOS` / `_DOWNLOAD_MODE` / `_DOWNLOAD_AUDIO` 替代，单进程单用户 CLI 够用） |
+
 ## 用法
 
 本节只覆盖本 fork 新增或变更的功能。原有用法（m3u8 下载、token 刷新等）见 `README.md` / `项目详解.md`。
@@ -131,7 +144,7 @@ uv run python login_sso_requests.py
 uv run python auth_patchright.py
 ```
 
-成功登录后 Bearer token 写入 `auth.txt`，所有下载入口（main.py / gui.py / webui）自动复用；token 失效时会再次自动调用 3 层 fallback 续期。
+成功登录后 Bearer token 写入 `auth.txt`，所有下载入口（`main.py` 统一 CLI / `webui_interface.py` WebUI）自动复用；`gui.py` 作为旧入口重定向到 `main.py`，行为一致。token 失效时会再次自动调用 3 层 fallback 续期。
 
 **WebUI 端**：启动 webui 后，登录页有专门的 SSO 配置入口。
 

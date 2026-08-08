@@ -6,6 +6,7 @@
 
 - **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` `headful_login`（自动启动有头浏览器完成剩余登录）
 - **`ensure_auth()` 自动 SSO**：所有下载入口（CLI / TUI / WebUI）`auth.txt` 失效时自动走 3 层 fallback，用户零操作
+- **统一 CLI 入口 `main.py`**：curses TUI（tty）+ stdin 文本交互（非 tty 自动降级），同一脚本覆盖交互与批处理；`gui.py` 改为 5 行薄重定向保留兼容
 - **跨平台支持（Windows / macOS / Linux）**：`get_ffmpeg_command()` 智能 ffmpeg 查找（env / cwd / homebrew / /usr/bin / /snap/bin / PATH 优先级）、PyInstaller frozen 路径、patchright 三平台 profile 路径、captcha 图片查看器跨平台调用（macOS `open` / Linux `xdg-open` / Windows `os.startfile`）、临时文件统一走 `tempfile.gettempdir()`（Linux/macOS 是 `/tmp`，Windows 是 `%TEMP%`）
 - **WebUI 课程搜索面板**：`/search_courses` + `/my_courses` + `/semesters` 三个端点 + 前端 Tab 切换 + 学期筛选 + 分页
 - **4 种非交互 captcha 自动识别**：图形图片（macOS Preview 弹窗）/ SMS / 邮件 / 隐形 reCAPTCHA
@@ -47,7 +48,7 @@ uv run python webui_interface.py
 
 `auth_patchright.py` 仍保留作为最后兜底，**仅在 Tier 1+2 都跑不过时由 Tier 3 自动调用**（用户无需手动跑该脚本）。
 
-> 运行 `main.py` / `gui.py` / `webui_interface.py` 时，若 `auth.txt` 不存在或失效，会自动调用 `login_sso_unified` 走上述 3 层 fallback，无需先手动跑登录脚本。
+> 运行 `main.py` / `webui_interface.py` 时，若 `auth.txt` 不存在或失效，会自动调用 `login_sso_unified` 走上述 3 层 fallback，无需先手动跑登录脚本。
 
 #### 主推：3 层 fallback 全自动登录（推荐，N100 24/7 友好）
 
@@ -181,12 +182,12 @@ uv sync
 # 网页 GUI
 uv run python webui_interface.py
 
-# 命令行 GUI
-uv run python gui.py
-
-# 原始交互方式
+# 统一 CLI（主推）：tty 下 curses TUI，非 tty（如管道/CI）自动降级 stdin
 uv run python main.py 40524
+# 不传 courseID 也会在 TUI/stdin 里提示输入
 ```
+
+`uv run python gui.py` 仍可用，已重定向到 `main.py`（兼容旧入口，行为一致）。
 
 程序会优先查找项目目录、打包目录、`/opt/homebrew/bin/ffmpeg`、`/usr/local/bin/ffmpeg` 和 PATH 中的 `ffmpeg`。如果你的 `ffmpeg` 在其他位置，可以通过环境变量指定：
 
@@ -194,7 +195,7 @@ uv run python main.py 40524
 FFMPEG_BINARY=/path/to/ffmpeg uv run python webui_interface.py
 ```
 
-下载类型可选摄像头（即教室后的摄像头录像）或电脑屏幕（即教室电脑的屏幕信号）。
+下载类型可选摄像头（即教室后的摄像头录像）、电脑屏幕（即教室电脑的屏幕信号）或双轨合并（摄像头 + 屏幕 + 蓝牙话筒，单 mkv）。
 
 可以选择是否下载教室蓝牙话筒信号（该课程有蓝牙话筒信号时有效），若老师未使用蓝牙话筒则该信号没有声音。
 
@@ -247,12 +248,12 @@ uv sync
 # 网页 GUI
 uv run python webui_interface.py
 
-# 命令行 GUI
-uv run python gui.py
-
-# 原始交互方式
+# 统一 CLI（主推）：tty 下 curses TUI，非 tty（如管道/CI）自动降级 stdin
 uv run python main.py 40524
+# 不传 courseID 也会在 TUI/stdin 里提示输入
 ```
+
+`uv run python gui.py` 仍可用，已重定向到 `main.py`（兼容旧入口，行为一致）。
 
 程序会按 `FFMPEG_BINARY` 环境变量 > 当前工作目录 > `/usr/bin/ffmpeg` > `/snap/bin/ffmpeg` > `PATH` 中的 `ffmpeg` 顺序查找。如果你的 `ffmpeg` 在其他位置，可以通过环境变量指定：
 
@@ -260,7 +261,7 @@ uv run python main.py 40524
 FFMPEG_BINARY=/path/to/ffmpeg uv run python webui_interface.py
 ```
 
-`gui.py`（curses TUI）需要终端支持 curses。绝大多数 Linux 发行版自带，若运行时报 `_curses` 找不到，安装 `libncurses5-dev` / `libncursesw5-dev` 即可（各发行版官方源均提供）。
+`main.py` 启动 curses TUI 需要终端支持 curses。绝大多数 Linux 发行版自带，若运行时报 `_curses` 找不到，安装 `libncurses5-dev` / `libncursesw5-dev` 即可（各发行版官方源均提供）。当终端不是 tty（如 systemd / nohup / CI 重定向）时，main.py 会自动降级到 stdin 文本交互，不会因 curses 失败而退出。
 
 ### 命令行 GUI 交互
 

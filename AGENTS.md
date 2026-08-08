@@ -18,11 +18,13 @@ Requires Python >=3.14 (per `pyproject.toml`) and ffmpeg installed and available
 
 ## Running the Application
 
-There are three UI entry points:
+There are two CLI entry points plus a Web GUI:
 
-- **Basic CLI**: `uv run python main.py [courseID]` — prompts for course ID, video selection, signal type, and audio option via stdin.
-- **TUI (curses)**: `uv run python gui.py` — interactive terminal UI using arrow keys and space to select videos/signals. Best run in a maximized terminal.
+- **Unified CLI**: `uv run python main.py [courseID]` — `main()` 根据 `sys.stdout.isatty()` 分流：tty 走 `main_tui()`（curses TUI，箭头 + 空格多选，q 退出），非 tty 或 curses 异常自动降级到 `main_plain()`（stdin 文本交互，可传 `courseID`）。功能完整：下载模式三选一（摄像头 / 屏幕 / 双轨合并 `merge_to_mkv` vga_offset=-0.5）+ 蓝牙音频条件下载 + `utils.ensure_auth` SSO 3层 fallback。
+- **Thin redirect**: `uv run python gui.py` — 已重定向到 `main.main()`，保留兼容旧入口。
 - **Web GUI**: `uv run python webui_interface.py` — starts a Flask server on `http://0.0.0.0:5001/`, auto-opens browser. Serves static files from `webui/` and templates from `templates/`.
+
+curses 交互层抽离在 `tui.py`（`multi_select` / `single_select` / `config_tui`）。
 
 Optional subtitle generation (after downloading videos):
 - `uv run python gen_caption.py [media_path]` — uses OpenAI Whisper locally. Prompts for model selection if no path is given.
@@ -33,7 +35,10 @@ Optional subtitle generation (after downloading videos):
 
 - `utils.py` — Shared logic for all entry points. Handles HTTP headers, Bearer auth (read/write `auth.txt`), Yanhe API communication (`cbiz.yanhekt.cn`), URL signing with MD5 timestamps, and audio URL fetching.
 - `m3u8dl.py` — Core downloader. Downloads m3u8 streams in parallel (32 threads by default) with bounded queue, handles nested m3u8 playlists, AES key download, periodic signature refresh in a background thread, and merges `.ts` segments into `.mp4` via ffmpeg.
-- `main.py` / `gui.py` / `webui_interface.py` — Three UIs that orchestrate `utils.get_course_info()`, video selection, and `m3u8dl.M3u8Download()`.
+- `main.py` — 统一 CLI 入口。`main()` 按 `sys.stdout.isatty()` 分流 tty/curses TUI（`main_tui`）与非 tty stdin 降级（`main_plain`）；curses 异常也降级 stdin。共享下载逻辑在 `_do_download` / `_download_one`，支持 0=main / 1=vga / 2=merge 三种下载模式 + 蓝牙音频条件下载 + `utils.ensure_auth` SSO 3层 fallback。
+- `tui.py` — curses 交互层。提供 `multi_select` / `single_select` / `config_tui`（TUI 完整流程：课程ID -> ensure_auth -> 视频多选 -> 下载模式单选 -> 蓝牙音频多选），以及 `Row` / `draw_line` / `draw_menu` / `draw_multi_select` 等渲染工具。
+- `gui.py` — 5 行薄重定向，`from main import main`，保留兼容旧入口。
+- `webui_interface.py` — Web GUI，Flask + 多进程 + 线程，独立于 CLI。
 - `gen_caption.py` — Standalone script. Extracts audio from `.mp4` with ffmpeg, transcribes with Whisper, and writes `.srt` subtitles (simplified Chinese via `zhconv`).
 
 ### Authentication Flow
