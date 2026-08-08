@@ -312,6 +312,8 @@ def get_ffmpeg_command():
         candidates.append(os.path.join(base_dir, "bin", executable))
     if sys.platform == "darwin":
         candidates.extend(["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"])
+    elif sys.platform.startswith("linux"):
+        candidates.extend(["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/snap/bin/ffmpeg"])
 
     for candidate in candidates:
         if (

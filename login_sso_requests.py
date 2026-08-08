@@ -16,8 +16,11 @@
 凭据从 .env 读 (STUDENT_ID + PASSWORD),默认不打账号密码。
 """
 import argparse
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, quote
@@ -181,8 +184,21 @@ def _prompt_user_for_code(prompt_text: str, *, allow_empty: bool = False) -> str
         print("[prompt] 不能为空,请重新输入")
 
 
+def _open_image(path: str) -> None:
+    """跨平台打开图片查看器,失败静默(macOS=open, Windows=os.startfile, 其他=xdg-open)。"""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif os.name == "nt":
+            os.startfile(path)  # type: ignore[attr-defined]  # Windows only
+        else:
+            subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 def _fetch_captcha_image(url: str, session: requests.Session) -> str:
-    """下载 captcha 图片到 /tmp/yhe_captcha.<ext>,返回本地路径(同时尝试 macOS open)。"""
+    """下载 captcha 图片到系统临时目录,返回本地路径(同时尝试跨平台打开图片查看器)。"""
     r = session.get(url, timeout=10)
     r.raise_for_status()
     # 推断扩展名
@@ -194,14 +210,9 @@ def _fetch_captcha_image(url: str, session: requests.Session) -> str:
         ext = ".gif"
     elif "jpeg" in ctype:
         ext = ".jpg"
-    out = Path("/tmp") / f"yhe_captcha{ext}"
+    out = Path(tempfile.gettempdir()) / f"yhe_captcha{ext}"
     out.write_bytes(r.content)
-    # macOS 弹 Preview
-    try:
-        import subprocess
-        subprocess.Popen(["open", str(out)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+    _open_image(str(out))
     return str(out)
 
 
