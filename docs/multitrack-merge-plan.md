@@ -35,7 +35,7 @@ ffmpeg -i main.mp4 -i vga.mp4 -i bluetooth.aac \
 - `-map 2:a`：蓝牙音频
 - `metadata`：track 名称，播放器显示
 
-## 音画同步（signal-prober 实测）
+## 音画同步（sync-prober 实测 + itsoffset 校准）
 
 | 组合 | 时延 | 处理 |
 |---|---|---|
@@ -43,6 +43,8 @@ ffmpeg -i main.mp4 -i vga.mp4 -i bluetooth.aac \
 | vga video + vga 内嵌 audio | 0（天然同步） | 无需处理 |
 | 蓝牙 audio + main video | +20ms | 可忽略 |
 | 蓝牙 audio + vga video | -0.46s | 已知偏移，YAGNI 先不校准 |
+
+**vga 画面同步**：sync-prober 实测 vga 画面比 main 晚约 0.5s（PPT 翻页事件 + 电子时钟金标准）。`merge_to_mkv` 已用 `-itsoffset -0.5` 提前 vga 对齐 main（`m3u8dl.py` 的 `vga_offset` 参数，commit c9a3a7c）。
 
 用户播放器切换：看摄像头用蓝牙音轨（近同步），看屏幕用 vga 内嵌音轨（天然同步）。
 
@@ -126,11 +128,15 @@ def merge_to_mkv(main_mp4, vga_mp4, audio_aac, output_mkv):
 2. **蓝牙音频缺失**：部分课程无蓝牙话筒。`merge_to_mkv` 需处理 audio_aac=None 情况（退化为 2 video + 2 audio）。
 3. **mkv 兼容性**：mkv 多轨在 VLC/IINA/mpv 支持；QuickTime 不支持 mkv。文档提示用户用 VLC/IINA。
 4. **磁盘空间**：下载两路中间 .mp4 临时占双倍空间，合并后删除。长课程需确认磁盘足够。
-5. **vga 0.46s 偏移**：蓝牙与 vga 有偏移，YAGNI 先不校准。若用户反馈需要，后续加 `-itsoffset` 选项。
+5. **vga 画面偏移**：vga 比 main 晚约 0.5s，已用 `-itsoffset -0.5` 校准（见上"音画同步"）。蓝牙与 vga 的 -0.46s 偏移仍 YAGNI 不校准。
 
 ## 后续可选优化（YAGNI，先不做）
 
 - 并发下载两路（速度提升 ~2x）
-- itsoffset 校准蓝牙与 vga 偏移
+- itsoffset 校准蓝牙与 vga 偏移（-0.46s，仍 YAGNI）
 - 保留中间文件选项
 - 内网模式（校园网 110MB/s，github-researcher 建议）
+
+## 待研究（画饼）
+
+- **不同教学楼音画偏移程度**：当前 `-itsoffset -0.5` 是基于单节课（某教学楼）sync-prober 实测值。不同教学楼的设备 / 采集链路可能偏移不同，固定 -0.5 在其他教学楼可能不准。待采集多样本（多教学楼 / 多课程）统计偏移分布，或做运行时自动探测（sync-prober 集成到下载流程，自动测偏移）。**当前同步可能不准**，用户若发现画面不同步可反馈。
