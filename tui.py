@@ -42,6 +42,10 @@ class ChooseCourseScreen(ModalScreen[str]):
 
     BINDINGS = [
         Binding("escape", "cancel", "取消"),
+        Binding("up", "focus_previous", "上一个"),
+        Binding("down", "focus_next", "下一个"),
+        Binding("left", "focus_previous", "上一个"),
+        Binding("right", "focus_next", "下一个"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -213,7 +217,13 @@ class PickOneScreen(ModalScreen[str]):
 class ChooseVideosScreen(ModalScreen[list[int] | None]):
     """阶段2: 选节数。返回 [index, ...]，None 表示取消。"""
 
-    BINDINGS = [Binding("escape", "cancel", "取消")]
+    BINDINGS = [
+        Binding("escape", "cancel", "取消"),
+        Binding("up", "focus_previous", "上一个"),
+        Binding("down", "focus_next", "下一个"),
+        Binding("left", "focus_previous", "上一个"),
+        Binding("right", "focus_next", "下一个"),
+    ]
 
     def __init__(self, videoList: list, courseName: str) -> None:
         super().__init__()
