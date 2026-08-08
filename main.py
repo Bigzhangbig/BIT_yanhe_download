@@ -1,11 +1,11 @@
-"""BIT 延河课堂下载 CLI — 统一入口 (TUI 优先，stdin 降级)。"""
+"""BIT 延河课堂下载 CLI — 统一入口 (Textual TUI 优先，stdin 降级)。"""
 import os
 import sys
 
 import m3u8dl
 import utils
 
-# 选择结果在 main_plain / _run_tui → _do_download 间传递 (无 tty 走 plain，tty 走 TUI)。
+# 选择结果在 main_plain / main_tui → _do_download 间传递 (无 tty 走 plain，tty 走 TUI)。
 # 保留模块级状态而非 threading.local，单进程单用户 CLI 够用，且调用顺序固定。
 _VIDEO_LIST: list = []
 _COURSE_NAME: str = ""
@@ -16,26 +16,24 @@ _TRACKS: dict = {}  # {want_main, want_vga, want_bluetooth, want_main_audio, wan
 
 @utils.print_help
 def main_tui():
-    """curses TUI 入口。"""
-    import curses
-    import tui
-
-    curses.wrapper(_run_tui)
-
-
-def _run_tui(stdscr):
+    """Textual TUI 入口。"""
     import tui
 
     global _VIDEO_LIST, _COURSE_NAME, _PROFESSOR
     global _SELECTED_VIDEOS, _TRACKS
 
+    app = tui.CourseApp()
+    app.run()
+    if app.result is None:
+        # 用户取消 / 流程未完成 — 静默退出，与 curses 旧行为对齐
+        return
     (
         _VIDEO_LIST,
         _COURSE_NAME,
         _PROFESSOR,
         _SELECTED_VIDEOS,
         _TRACKS,
-    ) = tui.config_tui(stdscr)
+    ) = app.result
     _do_download()
 
 
@@ -173,20 +171,15 @@ def _download_one(c, name):
 
 
 def main():
-    """统一入口：优先 curses TUI，非 tty 降级到 stdin 交互。"""
-    import curses
-
+    """统一入口：优先 Textual TUI，非 tty 降级到 stdin 交互。"""
     if not sys.stdout.isatty():
         main_plain()
         return
     try:
         main_tui()
-    except Exception as e:
-        msg = repr(e).lower()
-        if "initscr" in msg or "tty" in msg or "curses" in msg:
-            main_plain()
-        else:
-            raise
+    except Exception:
+        # Textual 在无终端 / 渲染失败 / 任何异常时降级到 stdin
+        main_plain()
 
 
 if __name__ == "__main__":

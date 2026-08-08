@@ -10,7 +10,7 @@ dependencies = [
     "python-dotenv",
     "pycryptodome>=3.23.0",
     "requests",
-    "windows-curses; platform_system == 'Windows'",
+    "textual>=8.2.8",
 ]
 
 [project.optional-dependencies]
@@ -26,4 +26,5 @@ whisper = [
 [dependency-groups]
 dev = [
     "patchright",
+    "pyinstaller>=6.21.0",
 ]
