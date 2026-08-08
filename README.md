@@ -6,7 +6,7 @@
 
 - **SSO 3 层 fallback 登录**：`login_sso_requests`（纯 requests CAS 3.0）→ `headless_login`（无头 patchright）→ `auth_patchright` `headful_login`（自动启动有头浏览器完成剩余登录）
 - **`ensure_auth()` 自动 SSO**：所有下载入口（CLI / TUI / WebUI）`auth.txt` 失效时自动走 3 层 fallback，用户零操作
-- **macOS 全面支持**：`get_ffmpeg_command()` 智能 ffmpeg 查找（env / cwd / homebrew / PATH 优先级）、PyInstaller frozen 路径、patchright macOS profile 路径
+- **跨平台支持（Windows / macOS / Linux）**：`get_ffmpeg_command()` 智能 ffmpeg 查找（env / cwd / homebrew / /usr/bin / /snap/bin / PATH 优先级）、PyInstaller frozen 路径、patchright 三平台 profile 路径、captcha 图片查看器跨平台调用（macOS `open` / Linux `xdg-open` / Windows `os.startfile`）、临时文件统一走 `tempfile.gettempdir()`（Linux/macOS 是 `/tmp`，Windows 是 `%TEMP%`）
 - **WebUI 课程搜索面板**：`/search_courses` + `/my_courses` + `/semesters` 三个端点 + 前端 Tab 切换 + 学期筛选 + 分页
 - **4 种非交互 captcha 自动识别**：图形图片（macOS Preview 弹窗）/ SMS / 邮件 / 隐形 reCAPTCHA
 - **多路/音画合并**：双轨 mkv（2 video + 3 audio track，ffmpeg `-c copy` 不重编码）
@@ -93,7 +93,7 @@ uv run python auth_patchright.py       # 只跑 Tier 3 (有头, 浏览器弹窗)
 | `<p id="netEaseCaptchaId">` 非空 | 网易易盾滑块 | ❌ 报错降级到 Tier 3 自动有头（需拖动） |
 | `<p id="siteKey">` 非空 | reCAPTCHA / hCaptcha | ❌ 报错降级到 Tier 3 自动有头（需勾选） |
 | `<p id="recaptcha-invisible">true` | 隐形 reCAPTCHA v3 | ❌ 报错降级到 Tier 3（行为指纹难模拟） |
-| `<img id="captchaImg">` 或 `<p id="captcha-url">` | 文本型图片验证码 | ✅ 下载到 `/tmp/yhe_captcha.<ext>` + macOS `open` 弹 Preview + 终端 prompt 输入 |
+| `<img id="captchaImg">` 或 `<p id="captcha-url">` | 文本型图片验证码 | ✅ 下载到系统临时目录 `tempfile.gettempdir()` 下（Linux/macOS 是 `/tmp`，Windows 是 `%TEMP%`）+ 调用平台默认图片查看器（macOS `open` / Linux `xdg-open` / Windows `os.startfile`）+ 终端 prompt 输入 |
 | `<p id="current-login-type">smsLogin` | 短信验证码 | ✅ 终端 prompt 输入 6 位 |
 | `<p id="current-login-type">mailLogin` | 邮件验证码 | ✅ 终端 prompt 输入 6 位 |
 | `<p id="current-login-type">webauthn` | 通行密钥 | ❌ 报错降级（需 Touch ID / 物理密钥） |
@@ -103,7 +103,7 @@ uv run python auth_patchright.py       # 只跑 Tier 3 (有头, 浏览器弹窗)
 
 ```
 [login] 需要图形验证码: https://sso.bit.edu.cn/cas/captcha?token=xxx
-[login] 验证码图片已存: /tmp/yhe_captcha.jpg (macOS 会自动用 Preview 打开)
+[login] 验证码图片已存: <系统临时目录>/yhe_captcha.jpg (系统默认图片查看器会自动打开)
 
 [prompt] 请输入图中验证码: ▌
 ```
@@ -209,6 +209,58 @@ FFMPEG_BINARY=/path/to/ffmpeg uv run python webui_interface.py
 下载完成的文件在 `output/`目录下以 `课程名-video/screen`格式命名的文件夹中。若下载了蓝牙音频则保存在和视频同目录同名的 `.aac`文件中。
 
 ![image-20230926124922726](md/README/image-20230926124922726.png)
+
+### Linux 运行
+
+Linux 同样可以从源码运行。建议先安装 `uv` 和 `ffmpeg`：
+
+Debian / Ubuntu 系：
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Fedora / RHEL 系：
+
+```bash
+sudo dnf install -y ffmpeg
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Snap 用户：
+
+```bash
+sudo snap install ffmpeg
+```
+
+然后在项目目录：
+
+```bash
+uv sync
+```
+
+按需运行：
+
+```bash
+# 网页 GUI
+uv run python webui_interface.py
+
+# 命令行 GUI
+uv run python gui.py
+
+# 原始交互方式
+uv run python main.py 40524
+```
+
+程序会按 `FFMPEG_BINARY` 环境变量 > 当前工作目录 > `/usr/bin/ffmpeg` > `/snap/bin/ffmpeg` > `PATH` 中的 `ffmpeg` 顺序查找。如果你的 `ffmpeg` 在其他位置，可以通过环境变量指定：
+
+```bash
+FFMPEG_BINARY=/path/to/ffmpeg uv run python webui_interface.py
+```
+
+`gui.py`（curses TUI）需要终端支持 curses。绝大多数 Linux 发行版自带，若运行时报 `_curses` 找不到，安装 `libncurses5-dev` / `libncursesw5-dev` 即可（各发行版官方源均提供）。
 
 ### 命令行 GUI 交互
 
