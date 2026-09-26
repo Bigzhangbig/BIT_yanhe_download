@@ -17,3 +17,5 @@ auth.txt
 .qoder/
 tencent_asr_transcribe.py
 transcribe_whisper.sh
+.snapshot/
+.vscode/
