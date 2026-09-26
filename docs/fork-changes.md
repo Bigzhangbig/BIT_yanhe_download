@@ -54,7 +54,7 @@ upstream 用 `openai-whisper`；本 fork 替换为 MLX Qwen3-ASR，量化可选�
 | 项 | 关键文件 / 位置 |
 | --- | --- |
 | 替换 ASR 引擎 | `gen_caption.py`，whisper 整段替换为 MLX Qwen3-ASR（265 行） |
-| 模型 ID | `mlx-community/Qwen3-ASR-1.7B-bf16` / `8bit` / `6bit` / `4bit`（`gen_caption.py:9-12`） |
+| 模型 ID | 默认 `mlx-community/Qwen3-ASR-1.7B-8bit`（8bit 量化，质量/体积均衡）；备选 `bf16` / `6bit` / `4bit`（`gen_caption.py`） |
 | CLI 化 | argparse 替代原 `sys.argv + input()` |
 | 临时音频 | 自动 ffmpeg 转换 16kHz 单声道 wav + 清理 |
 | 依赖 | `openai-whisper` -> `mlx-audio>=0.4.3` |
@@ -209,10 +209,13 @@ uv run python gen_caption.py /path/to/video.mp4
 uv run python gen_caption.py
 ```
 
-可选模型（在 `gen_caption.py` 定义）：
+默认模型（项目统一为 8bit 量化）：
+
+- `mlx-community/Qwen3-ASR-1.7B-8bit`（默认推荐，质量/体积均衡）
+
+可选模型（`--model` 显式覆盖；定义在 `gen_caption.py`）：
 
 - `mlx-community/Qwen3-ASR-1.7B-bf16`（满精度，最慢）
-- `mlx-community/Qwen3-ASR-1.7B-8bit`
 - `mlx-community/Qwen3-ASR-1.7B-6bit`
 - `mlx-community/Qwen3-ASR-1.7B-4bit`（最小，最快）
 

@@ -15,7 +15,9 @@ dependencies = [
 
 [project.optional-dependencies]
 asr = [
+    "google-genai>=2.19.0",
     "mlx-audio>=0.4.3",
+    "pymupdf>=1.28.0",
     "zhconv>=1.4.3",
 ]
 whisper = [

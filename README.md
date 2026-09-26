@@ -341,7 +341,7 @@ uv run python gui.py
 
 ![image-20240409105228362](md/README/image-20240409105228362.png)
 
-下载完视频后，双击运行 `gen_caption.exe`（文件较大，需要等一会），输入数字选择视频，回车。再输入数字选择 Qwen3-ASR 模型，默认使用 `mlx-community/Qwen3-ASR-1.7B-bf16`。第一次使用会自动下载模型，请耐心等待。如下所示：
+下载完视频后，双击运行 `gen_caption.exe`（文件较大，需要等一会），输入数字选择视频，回车。再输入数字选择 Qwen3-ASR 模型，默认使用 `mlx-community/Qwen3-ASR-1.7B-8bit`（8bit 量化）。第一次使用会自动下载模型，请耐心等待。如下所示：
 
 ![image-20240409131033038](md/README/image-20240409131033038.png)
 

@@ -5,9 +5,12 @@ import tempfile
 import time
 
 
+# Project's unified default: MLX Qwen3-ASR 1.7B 8bit quantization.
+# 8bit is a quality/size sweet spot (close to bf16, ~50% memory of bf16).
+# Other quantizations remain available as alternatives via --model flag.
 QWEN3_ASR_MODELS = [
-    "mlx-community/Qwen3-ASR-1.7B-bf16",
     "mlx-community/Qwen3-ASR-1.7B-8bit",
+    "mlx-community/Qwen3-ASR-1.7B-bf16",
     "mlx-community/Qwen3-ASR-1.7B-6bit",
     "mlx-community/Qwen3-ASR-1.7B-4bit",
 ]

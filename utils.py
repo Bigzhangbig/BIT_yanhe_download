@@ -195,6 +195,9 @@ def sanitize_filename(name):
 
 def get_course_info(courseID):
     courseID = courseID.strip()
+    # P-fix: 防御性 read_auth (单独调 get_course_info 时 Authorization 是空)
+    if not headers.get("Authorization", "").startswith("Bearer "):
+        read_auth()
 
     course = requests.get(
         f"https://cbiz.yanhekt.cn/v1/course?id={courseID}&with_professor_badges=true",
