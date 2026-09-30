@@ -1,4 +1,8 @@
-"""Log in to legacy Yanhe Classroom via BIT CAS, without a browser."""
+"""Log in to legacy Yanhe Classroom via BIT CAS, without a browser.
+
+SMS compatibility reference: BIT101-dev/BIT-Login-Python, commit 5d537ca,
+bit_login/sso/client.py (_complete_password_sms_factor and _request).
+"""
 
 import argparse
 import getpass
@@ -18,6 +22,7 @@ CAS_URL = "https://sso.bit.edu.cn/cas/login"
 LOGIN_URL = CAS_URL + "?" + urlencode({"service": "https://cbiz.yanhekt.cn/v1/cas/callback"})
 YANHE_HOSTS = {"www.yanhekt.cn", "yanhekt.cn"}
 LOGIN_HOSTS = YANHE_HOSTS | {"sso.bit.edu.cn", "cbiz.yanhekt.cn"}
+SMS_HEADERS = {"Origin": "https://sso.bit.edu.cn", "Referer": "https://sso.bit.edu.cn/cas/"}
 
 
 class LoginError(RuntimeError):
@@ -95,10 +100,16 @@ def _checked_url(url):
     return parsed
 
 
-def _follow_redirects(session, response, timeout):
+def _follow_redirects(session, response, timeout, *, allow_login_errors=False):
     for _ in range(8):
         if response.status_code not in (301, 302, 303):
             if response.status_code != 200:
+                # CAS can return a challenge/error page with a rejection status.
+                # This exception never applies to other hosts, paths or SMS APIs.
+                if allow_login_errors and response.status_code in (400, 401, 403):
+                    parsed = _checked_url(response.url)
+                    if parsed.hostname == "sso.bit.edu.cn" and parsed.path.rstrip("/") == "/cas/login":
+                        return response
                 raise LoginError(f"登录服务返回 HTTP {response.status_code}，请稍后重试。")
             return response
         location = response.headers.get("Location")
@@ -116,6 +127,31 @@ def _follow_redirects(session, response, timeout):
     raise LoginError("登录重定向次数过多，已停止。")
 
 
+def _login_error(response, default):
+    page = _LoginPage(response.text)
+    code = page.text.get("login-error-code", "").strip() or page.text.get("login-error-msg", "").strip()
+    # Translate known codes, never print the response's potentially private text.
+    return {
+        "1030027": "用户名或密码错误。", "1030031": "用户名或密码错误。",
+        "1030028": "账号已被锁定，请在学校官网处理。",
+        "1320007": "短信验证码错误或已失效，请重新登录。",
+        "1320010": "学校要求图形验证码，请使用手动认证码方式。",
+        "1330001": "学校风控拒绝登录，请在官网完成验证。",
+        "1410040": "账号状态无效，请在学校官网处理。",
+        "1410041": "账号状态无效，请在学校官网处理。",
+        "3910001": "账号已休眠，请先在学校官网激活。",
+    }.get(code, default)
+
+
+def _response_message(result):
+    for source in (result, result.get("data")):
+        if isinstance(source, dict):
+            for key in ("message", "msg", "errorMessage"):
+                if source.get(key):
+                    return str(source[key])
+    return ""
+
+
 def _sms_api(session, method, payload, timeout, *, encrypted=False):
     from sso_crypto import decrypt_sms_response, encrypt_sms_body, protected_csrf_headers
 
@@ -125,7 +161,7 @@ def _sms_api(session, method, payload, timeout, *, encrypted=False):
     else:
         headers = protected_csrf_headers()
         kwargs = {"json": payload}
-    headers.update({"Origin": "https://sso.bit.edu.cn", "Referer": CAS_URL,
+    headers.update({**SMS_HEADERS,
                     "Accept": "application/json", "Sid-Language": "zh_CN"})
     response = session.post(
         "https://sso.bit.edu.cn/cas/api/protected/sms/" + method,
@@ -139,7 +175,7 @@ def _sms_api(session, method, payload, timeout, *, encrypted=False):
     return result
 
 
-def _complete_sms(session, response, page, sms_code, code_provider, timeout):
+def _complete_sms(session, response, page, username, sms_code, code_provider, timeout):
     if sms_code is None and code_provider is None:
         raise LoginError("登录需要短信验证码；请在交互终端运行或提供验证码读取函数。")
     target = urljoin(response.url, page.action)
@@ -147,14 +183,18 @@ def _complete_sms(session, response, page, sms_code, code_provider, timeout):
         raise LoginError("短信验证表单的目标地址不正确。")
     phone_result = _sms_api(session, "getPhoneNumberByUserId",
                             {"userId": page.text["user-object-id"].strip()}, timeout, encrypted=True)
+    if phone_result.get("code") not in (None, 200):
+        raise LoginError("获取绑定手机信息被拒绝；未发送短信。")
     phone_data = phone_result.get("data")
     phone = phone_data.get("tel") if isinstance(phone_data, dict) else None
-    if phone_result.get("code") != 200 or not isinstance(phone, str) or not phone:
+    if not isinstance(phone, str) or not phone.strip():
+        phone = page.text.get("phone-number", "").strip()
+    if not phone:
         raise LoginError("无法获取本次短信验证所需的绑定手机信息。")
     if sms_code is None:
         sent = _sms_api(session, "publicNoToken/sendSmsCode",
                         {"phone": phone, "businessNo": "0008"}, timeout)
-        message = str(sent.get("message") or sent.get("msg") or "")
+        message = _response_message(sent)
         still_valid = all(word in message for word in ("验证码", "有效期内", "重复发送"))
         if sent.get("code") != 200 and not still_valid:
             raise LoginError("短信发送失败或被限流；未重试发送，请稍后重新登录。")
@@ -168,15 +208,15 @@ def _complete_sms(session, response, page, sms_code, code_provider, timeout):
     if checked.get("code") != 200:
         raise LoginError("短信验证码错误或已过期；未重试提交。")
     form = {
-        "username": page.text["second-auth-user-id"].strip(), "password": code,
+        "username": username, "password": code,
         "type": "smsLogin", "_eventId": "submit", "execution": page.execution,
         "geolocation": "", "captcha_code": "", "trustDevice": "false",
     }
     result = _follow_redirects(session, session.post(
-        target, data=form, allow_redirects=False, timeout=timeout
-    ), timeout)
+        target, data=form, headers=dict(SMS_HEADERS), allow_redirects=False, timeout=timeout
+    ), timeout, allow_login_errors=True)
     if not isinstance(result, str):
-        raise LoginError("短信验证后登录仍未完成；原认证文件未修改。")
+        raise LoginError(_login_error(result, "短信验证后登录仍未完成；原认证文件未修改。"))
     return result
 
 
@@ -221,14 +261,13 @@ def login(username, password, *, sms_code=None, code_provider=None, timeout=15):
             result = _follow_redirects(session, session.post(
                 CAS_URL, data=form, headers={"Origin": "https://sso.bit.edu.cn", "Referer": LOGIN_URL},
                 allow_redirects=False, timeout=timeout
-            ), timeout)
+            ), timeout, allow_login_errors=True)
             if isinstance(result, str):
                 return result
             challenge = _LoginPage(result.text)
-            if (challenge.is_sms and challenge.execution and challenge.text.get("user-object-id", "").strip()
-                    and challenge.text.get("second-auth-user-id", "").strip()):
-                return _complete_sms(session, result, challenge, sms_code, code_provider, timeout)
-            raise LoginError("登录未完成，请检查账号密码或在官网完成所需验证后手动提供认证码。")
+            if challenge.is_sms and challenge.execution and challenge.text.get("user-object-id", "").strip():
+                return _complete_sms(session, result, challenge, username, sms_code, code_provider, timeout)
+            raise LoginError(_login_error(result, "登录未完成，请检查账号密码或在官网完成所需验证后手动提供认证码。"))
     except requests.RequestException:
         raise LoginError("无法连接登录服务或请求超时，请检查网络后重试。") from None
     except ValueError:
@@ -264,7 +303,7 @@ def _timeout(value):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--username", help="学号；默认读取 STUDENT_ID 或交互输入")
     parser.add_argument("--sms-code", help="本次登录的短信验证码；默认读取 SMS_CODE 或交互输入")
     parser.add_argument("--auth-file", default="auth.txt", help="认证码保存位置（默认 auth.txt）")

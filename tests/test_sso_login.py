@@ -242,13 +242,16 @@ class LoginTests(unittest.TestCase):
         })
         form = calls[-1].kwargs["data"]
         self.assertEqual(form["execution"], "flow-2")
-        self.assertEqual(form["username"], "verified-user")
+        self.assertEqual(form["username"], "student")
         self.assertEqual(form["password"], "123456")
         self.assertEqual(form["captcha_code"], "")
         self.assertEqual(form["type"], "smsLogin")
         self.assertEqual(self.session.get.call_count, 2, "must not reload the login page")
         self.assertIn("Csrf-Key", calls[1].kwargs["headers"])
         self.assertEqual(calls[1].kwargs["headers"]["hasCrypto"], "true")
+        for call in calls[1:]:
+            self.assertEqual(call.kwargs["headers"]["Origin"], "https://sso.bit.edu.cn")
+            self.assertEqual(call.kwargs["headers"]["Referer"], "https://sso.bit.edu.cn/cas/")
 
     def test_explicit_sms_code_skips_prompt(self):
         self.sms(provided=True)
