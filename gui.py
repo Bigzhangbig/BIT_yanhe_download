@@ -1,7 +1,9 @@
 import curses
+import os
 import sys
 
 import m3u8dl
+import sso_login
 import utils
 
 videoList = []
@@ -95,6 +97,57 @@ def multi_select(stdscr, options, title, subtitle="", checked=None):
     return [i for i, c in enumerate(checked) if c]
 
 
+def _read_login_field(stdscr, prompt, *, secret=False):
+    stdscr.clear()
+    draw_line(stdscr, prompt, 0)
+    draw_line(stdscr, "留空或按 Ctrl-C 取消登录", 1)
+    stdscr.refresh()
+    try:
+        if secret:
+            curses.noecho()
+        else:
+            curses.echo()
+        value = stdscr.getstr(2, align).decode("utf-8")
+        if not value or "\x03" in value:
+            raise sso_login.LoginError("登录已取消。")
+        return value
+    finally:
+        curses.noecho()
+
+
+def _show_login_status(stdscr):
+    stdscr.clear()
+    draw_line(stdscr, "正在登录，请稍候…", 0)
+    stdscr.refresh()
+
+
+def login_tui(stdscr):
+    """Read credentials and any SMS challenge inside the active curses session."""
+    try:
+        curses.noecho()
+        username = os.environ.get("STUDENT_ID", "").strip()
+        if not username:
+            username = _read_login_field(stdscr, "请输入学号：").strip()
+        if not username:
+            raise sso_login.LoginError("登录已取消。")
+        password = os.environ.get("PASSWORD") or _read_login_field(
+            stdscr, "请输入密码（不回显）：", secret=True
+        )
+
+        def read_code():
+            code = _read_login_field(stdscr, "请输入短信验证码（不回显）：", secret=True)
+            _show_login_status(stdscr)
+            return code.strip()
+
+        _show_login_status(stdscr)
+        return sso_login.login(
+            username, password, sms_code=os.environ.get("SMS_CODE") or None,
+            code_provider=read_code,
+        )
+    finally:
+        curses.noecho()
+
+
 def config(stdscr):
     global \
         videoList, \
@@ -124,22 +177,27 @@ def config(stdscr):
 
     draw_line(stdscr, f"{url_base}", 1)
 
-    # 等待用户输入字符串并显示它
-    courseID = stdscr.getstr().decode("utf-8")
-    if not courseID:
-        sys.exit()
-
-    if not utils.read_auth() or not utils.test_auth(courseID=courseID):
+    try:
+        # 课程编号可回显，认证信息由 curses 内的登录提示读取。
+        try:
+            courseID = stdscr.getstr().decode("utf-8").strip()
+        finally:
+            curses.noecho()
+        if not courseID or "\x03" in courseID:
+            raise sso_login.LoginError("登录已取消。")
+        utils.ensure_auth(lambda: login_tui(stdscr))
+    except (sso_login.LoginError, KeyboardInterrupt, EOFError, OSError, curses.error, UnicodeError) as error:
+        curses.noecho()
         stdscr.clear()
-        for i, line in enumerate(utils.auth_prompt()):
-            draw_line(stdscr, line, i)
-        auth = stdscr.getstr().decode("utf-8")
-        utils.write_auth(auth)
-        if not utils.test_auth(courseID=courseID):
-            stdscr.clear()
-            draw_line(stdscr, "身份验证失败", 0)
+        message = str(error) if isinstance(error, sso_login.LoginError) else "登录已取消或输入不可用。"
+        draw_line(stdscr, message, 0)
+        draw_line(stdscr, "按任意键退出", 1)
+        stdscr.refresh()
+        try:
             stdscr.getch()
-            sys.exit()
+        except (KeyboardInterrupt, curses.error):
+            pass
+        sys.exit(1)
     videoList, courseName, professor = utils.get_course_info(courseID=courseID)
 
     selected_videos = []

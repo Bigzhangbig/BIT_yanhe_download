@@ -302,6 +302,27 @@ def _timeout(value):
     raise argparse.ArgumentTypeError("必须为大于零的有限秒数")
 
 
+def prompt_login(username=None, sms_code=None, *, timeout=15):
+    """Read terminal credentials and return a token without saving it."""
+    username = username or os.environ.get("STUDENT_ID", "")
+    password = os.environ.get("PASSWORD", "")
+    if not username or not password:
+        if not sys.stdin.isatty():
+            raise LoginError("非交互运行请设置 STUDENT_ID 和 PASSWORD，或用 --username 指定学号。")
+        username = username or input("学号：").strip()
+        if not username:
+            raise LoginError("登录已取消。")
+        password = password or getpass.getpass("密码：")
+
+    def read_code():
+        if not sys.stdin.isatty():
+            raise LoginError("非交互运行无法等待短信输入；请在终端保持本次登录并输入验证码。")
+        return input("请输入本次登录收到的短信验证码：").strip()
+
+    return login(username, password, sms_code=sms_code or os.environ.get("SMS_CODE"),
+                 code_provider=read_code if sys.stdin.isatty() else None, timeout=timeout)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--username", help="学号；默认读取 STUDENT_ID 或交互输入")
@@ -310,21 +331,7 @@ def main(argv=None):
     parser.add_argument("--timeout", type=_timeout, default=15, help="单次请求超时秒数（默认 15）")
     args = parser.parse_args(argv)
     try:
-        username = args.username or os.environ.get("STUDENT_ID", "")
-        password = os.environ.get("PASSWORD", "")
-        if not username or not password:
-            if not sys.stdin.isatty():
-                raise LoginError("非交互运行请设置 STUDENT_ID 和 PASSWORD，或用 --username 指定学号。")
-            username = username or input("学号：").strip()
-            password = password or getpass.getpass("密码：")
-
-        def read_code():
-            if not sys.stdin.isatty():
-                raise LoginError("非交互运行无法等待短信输入；请在终端保持本次登录并输入验证码。")
-            return input("请输入本次登录收到的短信验证码：").strip()
-
-        token = login(username, password, sms_code=args.sms_code or os.environ.get("SMS_CODE"),
-                      code_provider=read_code if sys.stdin.isatty() else None, timeout=args.timeout)
+        token = prompt_login(args.username, args.sms_code, timeout=args.timeout)
         _save_token(token, args.auth_file)
         print("登录成功，认证码已保存。可继续使用原下载入口。")
         return 0

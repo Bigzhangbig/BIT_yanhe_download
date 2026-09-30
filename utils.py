@@ -90,6 +90,36 @@ def write_auth(auth):
         f.write(auth)
 
 
+def ensure_auth(login_prompt):
+    """Reuse cached authentication or ask the entry point to obtain a token."""
+    from sso_login import LoginError, _save_token
+
+    if read_auth():
+        try:
+            # The frontend uses /v1/user to read the logged-in user. A course
+            # may be empty/inaccessible, and the video-token API is public.
+            response = requests.get(
+                "https://cbiz.yanhekt.cn/v1/user", headers=headers,
+                timeout=15, allow_redirects=False,
+            )
+            if response.status_code != 200:
+                raise ValueError("Unexpected authentication response")
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("Unexpected authentication payload")
+            code, data = str(payload.get("code")), payload.get("data")
+            if code == "0" and isinstance(data, dict) and data:
+                return True
+            if code != "61101113":
+                raise ValueError("Authentication state unknown")
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            raise LoginError("暂时无法校验已有认证，请检查网络后重试。") from None
+    token = login_prompt()
+    _save_token(token, "auth.txt")
+    headers["Authorization"] = "Bearer " + token
+    return True
+
+
 def remove_auth():
     headers["Authorization"] = ""
     if os.path.exists("auth.txt"):

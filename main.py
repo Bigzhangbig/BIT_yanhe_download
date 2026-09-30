@@ -2,6 +2,7 @@ import os
 import sys
 
 import m3u8dl
+import sso_login
 import utils
 
 headers = {
@@ -18,12 +19,11 @@ def main():
     else:
         courseID = sys.argv[1]
 
-    if not utils.read_auth() or not utils.test_auth(courseID=courseID):
-        auth = input("。".join(utils.auth_prompt()))
-        utils.write_auth(auth)
-        if not utils.test_auth(courseID=courseID):
-            print("身份验证失败")
-            sys.exit()
+    try:
+        utils.ensure_auth(sso_login.prompt_login)
+    except (sso_login.LoginError, EOFError, KeyboardInterrupt, OSError) as error:
+        print(str(error) if isinstance(error, sso_login.LoginError) else "登录取消或认证文件无法保存。")
+        raise SystemExit(1)
     videoList, courseName, professor = utils.get_course_info(courseID=courseID)
 
     print(f"课 程 名: {courseName}")
