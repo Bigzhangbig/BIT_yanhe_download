@@ -1,4 +1,3 @@
 requests
-pycryptodome>=3.23.0
 windows-curses; platform_system == "Windows"
 Flask

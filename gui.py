@@ -3,7 +3,6 @@ import os
 import sys
 
 import m3u8dl
-import sso_login
 import utils
 
 videoList = []
@@ -97,6 +96,10 @@ def multi_select(stdscr, options, title, subtitle="", checked=None):
     return [i for i, c in enumerate(checked) if c]
 
 
+class _LoginCancelled(utils.AuthError):
+    """User cancellation must not trigger the SSO failure fallback."""
+
+
 def _read_login_field(stdscr, prompt, *, secret=False):
     stdscr.clear()
     draw_line(stdscr, prompt, 0)
@@ -109,7 +112,7 @@ def _read_login_field(stdscr, prompt, *, secret=False):
             curses.echo()
         value = stdscr.getstr(2, align).decode("utf-8")
         if not value or "\x03" in value:
-            raise sso_login.LoginError("登录已取消。")
+            raise _LoginCancelled("登录已取消。")
         return value
     finally:
         curses.noecho()
@@ -125,11 +128,13 @@ def login_tui(stdscr):
     """Read credentials and any SMS challenge inside the active curses session."""
     try:
         curses.noecho()
+        import sso_login
+
         username = os.environ.get("STUDENT_ID", "").strip()
         if not username:
             username = _read_login_field(stdscr, "请输入学号：").strip()
         if not username:
-            raise sso_login.LoginError("登录已取消。")
+            raise _LoginCancelled("登录已取消。")
         password = os.environ.get("PASSWORD") or _read_login_field(
             stdscr, "请输入密码（不回显）：", secret=True
         )
@@ -144,6 +149,67 @@ def login_tui(stdscr):
             username, password, sms_code=os.environ.get("SMS_CODE") or None,
             code_provider=read_code,
         )
+    except (KeyboardInterrupt, EOFError):
+        raise _LoginCancelled("登录已取消。") from None
+    finally:
+        curses.noecho()
+
+
+def token_login_tui(stdscr):
+    """Read a hidden token; validation and persistence belong to ensure_auth."""
+    token = _read_login_field(stdscr, "请输入身份认证码 token（不回显）：", secret=True).strip()
+    if not token:
+        raise _LoginCancelled("登录已取消。")
+    return token
+
+
+def login_prompt_tui(stdscr):
+    """Choose token (default) or optional SSO when cached auth is unavailable."""
+    try:
+        curses.noecho()
+        selected = 0
+        while True:
+            stdscr.clear()
+            draw_line(stdscr, "请选择登录方式", 0)
+            draw_line(stdscr, "上下键或 1/2 选择，Enter 确认；q/Esc 取消", 1)
+            for index, option in enumerate(("1. 手动输入 token（默认）", "2. 学号密码 SSO 登录")):
+                draw_line(stdscr, ("> " if index == selected else "  ") + option, index + 3)
+            stdscr.refresh()
+            key = stdscr.getch()
+            if key in (ord("q"), 27):
+                raise _LoginCancelled("登录已取消。")
+            if key in (curses.KEY_DOWN, curses.KEY_UP):
+                selected = 1 - selected
+            elif key in (ord("1"), ord("2")):
+                selected = key - ord("1")
+            elif key in (curses.KEY_ENTER, 10, 13):
+                break
+
+        if selected == 0:
+            return token_login_tui(stdscr)
+        try:
+            return login_tui(stdscr)
+        except _LoginCancelled:
+            raise
+        except (utils.AuthError, ImportError) as error:
+            stdscr.clear()
+            message = (
+                "SSO 依赖不可用，请运行 uv sync --extra sso。"
+                if isinstance(error, ImportError) else "SSO 登录失败。"
+            )
+            draw_line(stdscr, message, 0)
+            draw_line(stdscr, "按 Enter 改用手动 token；q/Esc 取消", 1)
+            stdscr.refresh()
+            while True:
+                key = stdscr.getch()
+                if key in (ord("q"), 27):
+                    raise _LoginCancelled("登录已取消。")
+                if key in (curses.KEY_ENTER, 10, 13):
+                    return token_login_tui(stdscr)
+    except (KeyboardInterrupt, EOFError):
+        raise _LoginCancelled("登录已取消。") from None
+    except (OSError, curses.error, UnicodeError):
+        raise utils.AuthError("登录输入不可用。") from None
     finally:
         curses.noecho()
 
@@ -184,18 +250,18 @@ def config(stdscr):
         finally:
             curses.noecho()
         if not courseID or "\x03" in courseID:
-            raise sso_login.LoginError("登录已取消。")
-        utils.ensure_auth(lambda: login_tui(stdscr))
-    except (sso_login.LoginError, KeyboardInterrupt, EOFError, OSError, curses.error, UnicodeError) as error:
+            raise utils.AuthError("登录已取消。")
+        utils.ensure_auth(lambda: login_prompt_tui(stdscr))
+    except (utils.AuthError, KeyboardInterrupt, EOFError, OSError, curses.error, UnicodeError) as error:
         curses.noecho()
         stdscr.clear()
-        message = str(error) if isinstance(error, sso_login.LoginError) else "登录已取消或输入不可用。"
+        message = str(error) if isinstance(error, utils.AuthError) else "登录已取消或输入不可用。"
         draw_line(stdscr, message, 0)
         draw_line(stdscr, "按任意键退出", 1)
         stdscr.refresh()
         try:
             stdscr.getch()
-        except (KeyboardInterrupt, curses.error):
+        except (KeyboardInterrupt, EOFError, curses.error):
             pass
         sys.exit(1)
     videoList, courseName, professor = utils.get_course_info(courseID=courseID)

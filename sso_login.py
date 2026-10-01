@@ -10,12 +10,11 @@ import math
 import os
 import re
 import sys
-import tempfile
 from html.parser import HTMLParser
-from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 import requests
+from utils import AuthError as LoginError, save_auth as _save_token
 
 
 CAS_URL = "https://sso.bit.edu.cn/cas/login"
@@ -23,10 +22,6 @@ LOGIN_URL = CAS_URL + "?" + urlencode({"service": "https://cbiz.yanhekt.cn/v1/ca
 YANHE_HOSTS = {"www.yanhekt.cn", "yanhekt.cn"}
 LOGIN_HOSTS = YANHE_HOSTS | {"sso.bit.edu.cn", "cbiz.yanhekt.cn"}
 SMS_HEADERS = {"Origin": "https://sso.bit.edu.cn", "Referer": "https://sso.bit.edu.cn/cas/"}
-
-
-class LoginError(RuntimeError):
-    """A login failure safe to display without exposing credentials."""
 
 
 class _LoginPage(HTMLParser):
@@ -274,24 +269,6 @@ def login(username, password, *, sms_code=None, code_provider=None, timeout=15):
         raise LoginError("登录服务的数据或加密配置无法识别；原认证文件未修改。") from None
 
 
-def _save_token(token, path):
-    if not re.fullmatch(r"[0-9a-fA-F]{32}", token):
-        raise LoginError("登录未返回有效的身份认证码；未修改原文件。")
-    destination = Path(path)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=destination.parent,
-            prefix=".yanhe-auth-", delete=False,
-        ) as output:
-            temporary = Path(output.name)
-            output.write(token)
-        os.replace(temporary, destination)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
 def _timeout(value):
     try:
         seconds = float(value)
@@ -311,13 +288,18 @@ def prompt_login(username=None, sms_code=None, *, timeout=15):
             raise LoginError("非交互运行请设置 STUDENT_ID 和 PASSWORD，或用 --username 指定学号。")
         username = username or input("学号：").strip()
         if not username:
-            raise LoginError("登录已取消。")
+            raise EOFError
         password = password or getpass.getpass("密码：")
+        if not password:
+            raise EOFError
 
     def read_code():
         if not sys.stdin.isatty():
             raise LoginError("非交互运行无法等待短信输入；请在终端保持本次登录并输入验证码。")
-        return input("请输入本次登录收到的短信验证码：").strip()
+        code = input("请输入本次登录收到的短信验证码：").strip()
+        if not code:
+            raise EOFError
+        return code
 
     return login(username, password, sms_code=sms_code or os.environ.get("SMS_CODE"),
                  code_provider=read_code if sys.stdin.isatty() else None, timeout=timeout)
@@ -338,6 +320,9 @@ def main(argv=None):
     except (LoginError, EOFError, KeyboardInterrupt, OSError) as error:
         message = str(error) if isinstance(error, LoginError) else "登录取消、输入不可用或认证文件无法保存。"
         print(message, file=sys.stderr)
+        return 1
+    except ImportError:
+        print("账号密码登录依赖未安装，请运行 uv sync --extra sso；也可使用手动 token 登录。", file=sys.stderr)
         return 1
 
 
